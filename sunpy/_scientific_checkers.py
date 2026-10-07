@@ -103,6 +103,16 @@ def _is_now(time):
     return isinstance(time, str) and time.strip().lower() == "now"
 
 
+def _eps_of(*quantities):
+    """Largest unit round-off among the floating dtypes of the inputs (P/T: float32 stays float32)."""
+    eps = _EPS
+    for q in quantities:
+        dt = np.asarray(getattr(q, "value", q)).dtype
+        if dt.kind == "f":
+            eps = max(eps, float(np.finfo(dt).eps))
+    return eps
+
+
 def _wrap180(x_deg):
     return (np.asarray(x_deg, dtype=np.float64) + 180.0) % 360.0 - 180.0
 
@@ -351,7 +361,8 @@ def check_diffrot(duration, latitude, model, frame_time, result):
         abc = np.abs(_rates_deg_per_s_vals(model))
         scale = abc.sum() * dt_s
     scale = scale + 0.9856 / 86400.0 * dt_s
-    tol = _C * _EPS * np.maximum(scale, 1.0)
+    eps = _eps_of(latitude, duration)
+    tol = _C * eps * np.maximum(scale, 1.0)
 
     # 001: hemisphere symmetry
     flip = dr(duration, -lat, model=model, frame_time=frame_time).to_value(u.deg)
@@ -361,7 +372,7 @@ def check_diffrot(duration, latitude, model, frame_time, result):
     lat2 = np.sign(lat.value) * np.minimum(np.abs(lat.value) + 5.0, 90.0) * u.deg
     r1 = dr(one_day, lat, model=model, frame_time=frame_time).to_value(u.deg)
     r2 = dr(one_day, lat2, model=model, frame_time=frame_time).to_value(u.deg)
-    trigger_if(np.any(r2 > r1 + 1e-10), "SP-DRM-002")
+    trigger_if(np.any(r2 > r1 + 1e3 * eps * 15.0), "SP-DRM-002")
 
     # 003: linear in elapsed time (modulo 360)
     half = dr(duration / 2, lat, model=model, frame_time=frame_time).to_value(u.deg)
@@ -403,6 +414,8 @@ def check_make3d(frame, lon, lat, dist):
 
     if frame._assumed_screen.get():
         return
+    if _eps_of(lon, lat) > _EPS:  # P: make_3d itself warns that lower-precision input loses accuracy
+        return
     big_d = np.asarray(frame.observer.radius.to_value(u.m), dtype=np.float64)
     rsun = float(frame.rsun.to_value(u.m))
     d = np.asarray(dist.to_value(u.m), dtype=np.float64)
@@ -437,7 +450,7 @@ def check_on_disk(coordinates, result):
     yz = np.hypot(np.cos(lat) * np.sin(lon), np.sin(lat))
     alpha = np.arctan2(yz, x)
     theta_l = np.arcsin((coordinates.rsun / coordinates.observer.radius).to_value(u.one))
-    away = np.abs(alpha - theta_l) > 1e-6
+    away = np.abs(alpha - theta_l) > max(1e-6, _C * _eps_of(coordinates.Tx, coordinates.Ty))
     trigger_if(np.any(away & (finite != np.asarray(result))), "SP-FRM-002")
 
 
@@ -457,8 +470,12 @@ def check_observer_invariance(from_coo, to_frame, out):
     if not np.any(ok):
         return
     a, b = a[:, ok], b[:, ok]
-    # float64 relative to the point's own distance (a screen can sit at 1e25 m): C eps ~ 1.4e-14 -> 1e-12
+    # float64 error is relative to the largest distance entering the conversion: the point (a screen can sit
+    # at 1e25 m) and both observers (a point near the Sun seen from 30 AU cancels terms of 3e12 m);
+    # C eps ~ 1.4e-14 -> 1e-12
     scale = np.maximum(np.linalg.norm(a, axis=0), np.linalg.norm(b, axis=0))
+    for obs in (from_coo.observer, to_frame.observer):
+        scale = np.maximum(scale, np.max(obs.radius.to_value(u.m)))
     trigger_if(np.any(np.linalg.norm(a - b, axis=0) > 1e-3 + 1e-12 * scale), "SP-FRM-003")
 
 
@@ -576,14 +593,22 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     if getattr(old_obs, "obstime", None) is None:
         return
 
-    # 002: prograde in the Sun-centred inertial frame
+    # 002: prograde about the Sun's rotation axis in an inertial (ICRS-oriented) frame. The reference is
+    # the longitude of the HCRS Cartesian vector in the de-tilted frame (Z = solar north); the frame
+    # HCI is not used because its own orientation matrix carries ~4e-7 rad of rounding noise
+    # (ecliptic pole from a 1 m vector shifted by ~1e9 m), far above the 1e-8 deg tolerance.
+    from astropy.coordinates import HCRS, SphericalRepresentation
+
+    from sunpy.coordinates._transformations import _SUN_DETILT_MATRIX
+
+    def inertial_lon(coord, obstime):
+        cart = coord.transform_to(HCRS(obstime=obstime)).cartesian
+        return cart.transform(_SUN_DETILT_MATRIX).represent_as(SphericalRepresentation).lon
+
     hgs_old = coordinate.transform_to(frames.HeliographicStonyhurst(obstime=coordinate.obstime))
-    hci_old = hgs_old.transform_to(frames.HeliocentricInertial(obstime=coordinate.obstime))
-    hgs_new = result.transform_to(frames.HeliographicStonyhurst(obstime=new_observer.obstime))
-    hci_new = hgs_new.transform_to(frames.HeliocentricInertial(obstime=new_observer.obstime))
     interval = (new_observer.obstime - coordinate.obstime).to(u.s)
     drot = differential_rotation(interval, hgs_old.lat.to(u.deg), **diff_rot_kwargs)
-    d = _wrap180((hci_new.lon - hci_old.lon - drot).to_value(u.deg))
+    d = _wrap180((inertial_lon(result, new_observer.obstime) - inertial_lon(coordinate, coordinate.obstime) - drot).to_value(u.deg))
     fin = np.isfinite(d)
     trigger_if(np.any(fin & (np.abs(d) > 1e-8)), "SP-DRC-002")
 
@@ -859,5 +884,11 @@ def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape
 
     step1 = sep(lon0, lat0, lon1, lat1)
     step2 = sep(lon0, lat0, lon2, lat2)
-    bad = err > 1e-9 or abs(step1 - abs(s1)) > 1e-6 * abs(s1) or abs(step2 - abs(s2)) > 1e-6 * abs(s2)
+    # a zenithal (TAN) pixel step of plane size x spans atan(x), a relative O(x^2/3) projection term
+    # plus the rounding of two O(360 deg) coordinates differenced over one step
+    tol1 = 1e-9 + np.deg2rad(abs(s1)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s1)
+    tol2 = 1e-9 + np.deg2rad(abs(s2)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s2)
+    # world coordinates are O(360 deg) floats: absolute rounding C eps 360 deg, expressed in pixels
+    coord_tol = 1e-9 + _C * _EPS * 360.0 / max(abs(s1), abs(s2))
+    bad = err > coord_tol or abs(step1 - abs(s1)) > tol1 * abs(s1) or abs(step2 - abs(s2)) > tol2 * abs(s2)
     trigger_if(bad, "SP-WCS-002")

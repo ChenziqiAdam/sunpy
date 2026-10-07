@@ -268,7 +268,7 @@
       "symbol": "coordinate_is_on_solar_disk"
     },
     {
-      "alarm": "HGS Cartesian difference `> 1e-3 m + 1e-12 D`",
+      "alarm": "HGS Cartesian difference `> 1e-3 m + 1e-12 L`, `L` = the largest of the point distances and the two observer distances (revised twice, see revision log)",
       "family": "hpc_observer_invariance",
       "id": "SP-FRM-003",
       "invariant": "after `Helioprojective -> Helioprojective` with a different observer, both coordinates are the same Sun-centred point (compare in HGS)",
@@ -352,10 +352,10 @@
       "symbol": "solar_rotate_coordinate"
     },
     {
-      "alarm": "wrapped HCI longitude change differs by `> 1e-8 deg`",
+      "alarm": "wrapped change of the longitude of the HCRS Cartesian vector in the de-tilted frame (axis = solar north) differs from `drot` by `> 1e-8 deg`",
       "family": "solar_rotate_prograde",
       "id": "SP-DRC-002",
-      "invariant": "in the Sun-centred inertial frame (HCI), a point's longitude advances by `differential_rotation(dt, lat)`",
+      "invariant": "about the Sun's rotation axis, in an inertial (ICRS-oriented, Sun-centred) frame, a point's longitude advances by `differential_rotation(dt, lat)`",
       "observation_point": "return of `solar_rotate_coordinate`",
       "precondition": "on-disk input, sidereal frame",
       "rationale": "fixes the direction the reversibility law cannot see.",
@@ -484,7 +484,7 @@
       "symbol": "solar_frame_to_wcs_mapping"
     },
     {
-      "alarm": "coordinate error `> 1e-9` of one pixel, or step differs by `> 1e-6` relative",
+      "alarm": "coordinate error `> 1e-9 + C eps 360 deg / scale` pixels, or step differs by `> 1e-9 + x^2/2 + C eps 360 deg / |scale|` relative (`x` = the step in radians; a zenithal pixel step of plane size `x` spans `atan(x)`; the last term is the rounding of two O(360 deg) coordinates differenced over one step)",
       "family": "fits_header_reference",
       "id": "SP-WCS-002",
       "invariant": "evaluating the header's WCS at the zero-based reference pixel gives the input coordinate, and one pixel along an axis moves the coordinate by the requested scale",
