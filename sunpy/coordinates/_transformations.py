@@ -46,6 +46,7 @@ from astropy.coordinates.representation import (
 from astropy.coordinates.transformations import FunctionTransform, FunctionTransformWithFiniteDifference
 from astropy.time import Time
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.sun import constants
 from sunpy.util.decorators import sunpycontextmanager
@@ -580,6 +581,9 @@ def hpc_to_hpc(from_coo, to_frame):
 
     hgs = from_coo.transform_to(HeliographicStonyhurst(obstime=to_frame.obstime))
     hpc = hgs.transform_to(to_frame)
+
+    if _sc.enabled():
+        _sc.check_observer_invariance(from_coo, to_frame, hpc)
 
     return hpc
 

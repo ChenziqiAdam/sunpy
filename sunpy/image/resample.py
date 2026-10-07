@@ -5,6 +5,7 @@ import numpy as np
 import scipy.interpolate
 import scipy.ndimage
 
+from sunpy import _scientific_checkers as _sc
 from sunpy.util.exceptions import warn_user
 
 __all__ = ['resample', 'reshape_image_to_4d_superpixel']
@@ -75,6 +76,10 @@ def resample(orig, dimensions, method='linear', center=False, minusone=False):
         data = _resample_spline(orig, dimensions, offset, m1)
     else:
         raise UnrecognizedInterpolationMethod(f"Unrecognized interpolation method requested: {method}")
+
+    if _sc.enabled():
+        _sc.check_resample_extrema(orig, dimensions, method, offset, m1, data)
+        _sc.check_resample_ramp(orig.shape, dimensions, method, offset, m1)
 
     return data
 

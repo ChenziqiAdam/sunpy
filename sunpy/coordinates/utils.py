@@ -8,6 +8,7 @@ import astropy.units as u
 from astropy.coordinates import BaseCoordinateFrame, SkyCoord
 from astropy.coordinates.representation import CartesianRepresentation
 
+from sunpy import _scientific_checkers as _sc
 from sunpy.coordinates import Heliocentric, HeliographicStonyhurst, get_body_heliographic_stonyhurst
 from sunpy.sun import constants
 
@@ -257,6 +258,10 @@ class GreatArc:
                                       self.v3[np.newaxis, :] * np.sin(these_inner_angles) +
                                       self.center_cartesian) * self.distance_unit
 
+        if _sc.enabled():
+            _sc.check_great_arc(self, self._points_handler(points),
+                                great_arc_points_cartesian.to_value(self.distance_unit))
+
         # Return the coordinates of the great arc between the start and end
         # points
         return SkyCoord(great_arc_points_cartesian[:, 0],
@@ -469,6 +474,8 @@ def get_limb_coordinates(observer, rsun: u.m = constants.radius, resolution=1000
                     representation_type='cylindrical',
                     frame='heliocentric',
                     observer=observer, obstime=observer.obstime)
+    if _sc.enabled():
+        _sc.check_limb(limb, observer, rsun)
     return limb
 
 
@@ -529,4 +536,7 @@ def get_heliocentric_angle(coordinate_on_solar_disk):
     normal = hcc.cartesian
     to_observer = CartesianRepresentation(0, 0, 1) * hcc.observer.radius - normal
     heliocentric_angle = np.arctan2(normal.cross(to_observer).norm(), normal.dot(to_observer))
-    return heliocentric_angle.to(u.deg)
+    result = heliocentric_angle.to(u.deg)
+    if _sc.enabled():
+        _sc.check_helio_angle(coordinate_on_solar_disk, result)
+    return result

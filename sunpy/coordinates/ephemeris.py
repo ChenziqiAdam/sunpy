@@ -23,6 +23,7 @@ from astropy.coordinates.representation import (
 from astropy.io import ascii
 from astropy.time import Time
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.time import parse_time
 from sunpy.time.time import _variables_for_parse_time_docstring
@@ -118,6 +119,8 @@ def get_body_heliographic_stonyhurst(body, time='now', observer=None, *, include
             delta_light_travel_time = light_travel_time - distance / speed_of_light
             light_travel_time = distance / speed_of_light
             emitted_time = obstime - light_travel_time
+        if _sc.enabled():
+            _sc.check_light_time(body, observer_icrs, light_travel_time, emitted_time, obstime)
 
         if not quiet:
             if light_travel_time.isscalar:
@@ -134,6 +137,9 @@ def get_body_heliographic_stonyhurst(body, time='now', observer=None, *, include
         body_icrs = get_body_barycentric(body, emitted_time)
 
     body_hgs = ICRS(body_icrs).transform_to(HeliographicStonyhurst(obstime=obstime))
+
+    if _sc.enabled():
+        _sc.check_body_hgs(body, observer, obstime, body_hgs)
 
     return body_hgs
 

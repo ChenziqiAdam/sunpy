@@ -4,6 +4,7 @@ import astropy.units as u
 import astropy.wcs
 from astropy.coordinates import SkyCoord
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.coordinates import frames, sun
 from sunpy.util import MetaDict
@@ -128,6 +129,8 @@ def make_fitswcs_header(data,
         meta_wcs['rsun_obs'] = sun._angular_radius(coordinate.rsun, dsun_obs).to_value(u.arcsec)
 
     meta_dict = MetaDict(meta_wcs)
+    if _sc.enabled():
+        _sc.check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape, meta_wcs)
     return meta_dict
 
 

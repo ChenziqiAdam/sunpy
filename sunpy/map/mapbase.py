@@ -39,6 +39,7 @@ from astropy.visualization.wcsaxes import Quadrangle, WCSAxes
 # The next two are not used but are called to register functions with external modules
 import sunpy.coordinates
 import sunpy.visualization.colormaps
+from sunpy import _scientific_checkers as _sc
 from sunpy import config, log
 from sunpy.coordinates import HeliographicCarrington, get_earth, sun
 from sunpy.coordinates.utils import get_rectangle_coordinates
@@ -1752,6 +1753,8 @@ class GenericMap(NDData):
 
         # Create new map instance
         new_map = self._new_instance(new_data, new_meta, self.plot_settings)
+        if _sc.enabled():
+            _sc.check_resample_footprint(self, new_map)
         return new_map
 
     @add_common_docstring(rotation_function_names=_rotation_function_names)
@@ -1947,6 +1950,8 @@ class GenericMap(NDData):
 
         # Create new map with the modification
         new_map = self._new_instance(new_data, new_meta, self.plot_settings)
+        if _sc.enabled():
+            _sc.check_rotate_center(self, new_map, recenter)
 
         return new_map
 
@@ -2134,9 +2139,13 @@ class GenericMap(NDData):
             new_mask = self.mask[arr_slice].copy()
             # Create new map with the modification
             new_map = self._new_instance(new_data, new_meta, self.plot_settings, mask=new_mask)
+            if _sc.enabled():
+                _sc.check_submap(self, new_map)
             return new_map
         # Create new map with the modification
         new_map = self._new_instance(new_data, new_meta, self.plot_settings)
+        if _sc.enabled():
+            _sc.check_submap(self, new_map)
         return new_map
 
     @seconddispatch
@@ -2302,6 +2311,8 @@ class GenericMap(NDData):
 
         # Create new map with the modified data
         new_map = self._new_instance(new_data, new_meta, self.plot_settings, mask=new_mask)
+        if _sc.enabled():
+            _sc.check_superpixel_footprint(self, new_map, dimensions, offset)
         return new_map
 
 # #### Visualization #### #

@@ -10,6 +10,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.visualization import AsymmetricPercentileInterval
 
+from sunpy import _scientific_checkers as _sc
 from sunpy.coordinates import Helioprojective, sun
 
 __all__ = ['all_pixel_indices_from_map', 'all_coordinates_from_map',
@@ -284,7 +285,10 @@ def coordinate_is_on_solar_disk(coordinates):
     _verify_coordinate_helioprojective(coordinates)
     # Calculate the radial angle from the center of the Sun (do not assume small angles)
     # and compare it to the angular radius of the Sun
-    return np.arccos(np.cos(coordinates.Tx) * np.cos(coordinates.Ty)) <= solar_angular_radius(coordinates)
+    result = np.arccos(np.cos(coordinates.Tx) * np.cos(coordinates.Ty)) <= solar_angular_radius(coordinates)
+    if _sc.enabled():
+        _sc.check_on_disk(coordinates, result)
+    return result
 
 
 def is_all_off_disk(smap):
@@ -314,7 +318,10 @@ def is_all_off_disk(smap):
     _verify_coordinate_helioprojective(smap.coordinate_frame)
     edge_of_world = _edge_coordinates(smap)
     # Check that the edge pixels are all beyond the limb and the Sun center is not in the map
-    return np.all(~coordinate_is_on_solar_disk(edge_of_world)) and ~contains_solar_center(smap)
+    result = np.all(~coordinate_is_on_solar_disk(edge_of_world)) and ~contains_solar_center(smap)
+    if _sc.enabled():
+        _sc.check_all_off_disk(smap, result)
+    return result
 
 
 def is_all_on_disk(smap):
@@ -339,7 +346,10 @@ def is_all_on_disk(smap):
     """
     _verify_coordinate_helioprojective(smap.coordinate_frame)
     edge_of_world = _edge_coordinates(smap)
-    return np.all(coordinate_is_on_solar_disk(edge_of_world))
+    result = np.all(coordinate_is_on_solar_disk(edge_of_world))
+    if _sc.enabled():
+        _sc.check_all_on_disk(smap, result)
+    return result
 
 
 def contains_limb(smap):
@@ -372,9 +382,13 @@ def contains_limb(smap):
     """
     _verify_coordinate_helioprojective(smap.coordinate_frame)
     if contains_full_disk(smap):
-        return True
-    on_disk = coordinate_is_on_solar_disk(_edge_coordinates(smap))
-    return np.logical_and(np.any(on_disk), np.any(~on_disk))
+        result = True
+    else:
+        on_disk = coordinate_is_on_solar_disk(_edge_coordinates(smap))
+        result = np.logical_and(np.any(on_disk), np.any(~on_disk))
+    if _sc.enabled():
+        _sc.check_disk_partition(smap, result)
+    return result
 
 
 def on_disk_bounding_coordinates(smap):

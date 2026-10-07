@@ -9,6 +9,7 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates.representation import CartesianRepresentation, UnitSphericalRepresentation
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.coordinates._transformations import _autoapply_diffrot
@@ -107,6 +108,8 @@ class BaseScreen(abc.ABC):
             # Return the solution if all elements have converged
             if np.sum(use) == 0:
                 log.debug("Solved for the differentially rotated screen after %d iterations", niter + 1)
+                if _sc.enabled():
+                    _sc.check_screen_iteration(self, coord, distance, screen_frame)
                 return distance
 
             # Squash small deltas to avoid warnings from later computations
@@ -114,6 +117,8 @@ class BaseScreen(abc.ABC):
 
         warn_user(f"Failed to solve for the differentially rotated screen after {niter + 1} iterations. "
                   "Using the best guess.")
+        if _sc.enabled():
+            _sc.check_screen_iteration(self, coord, distance, screen_frame)
         return distance
 
 
@@ -203,6 +208,9 @@ class SphericalScreen(BaseScreen):
         # Ignore sqrt of NaNs
         with np.errstate(invalid='ignore'):
             distance = ((-1*b) + np.sqrt(b**2 - 4*c)) / 2  # use the "far" solution
+
+        if _sc.enabled() and _autoapply_diffrot.get() is None:
+            _sc.check_spherical_screen(sphere_center, rep, distance, self._radius)
 
         # Iterate the calculation if differential rotation is being applied
         if _autoapply_diffrot.get() is not None and np.any(frame.obstime != self._center.obstime):

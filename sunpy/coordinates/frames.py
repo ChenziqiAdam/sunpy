@@ -28,6 +28,7 @@ from astropy.table import serialize as table_serialize
 from astropy.time import Time
 from astropy.utils.data import download_file
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.sun.constants import radius as _RSUN
 from sunpy.time.time import _variables_for_parse_time_docstring
@@ -655,6 +656,9 @@ class Helioprojective(SunPyBaseCoordinateFrame):
                       "because off-disk coordinates need an additional assumption to be mapped to "
                       "calculate distance from the observer. Consider using the context manager "
                       "`SphericalScreen()`.")
+
+        if _sc.enabled():
+            _sc.check_make3d(self, lon, lat, d)
 
         return self.realize_frame(SphericalRepresentation(lon=lon,
                                                           lat=lat,

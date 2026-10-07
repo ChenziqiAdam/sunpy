@@ -16,6 +16,7 @@ import astropy.units as u
 from astropy.coordinates import Longitude
 from astropy.table import QTable
 
+from sunpy import _scientific_checkers as _sc
 from sunpy.sun.constants import sidereal_rotation_rate
 
 __all__ = ["interior", "evolution", "differential_rotation"]
@@ -197,4 +198,7 @@ def differential_rotation(duration: u.s, latitude: u.deg, *, model='howard', fra
     if frame_time == 'synodic':
         rotation -= 0.9856 * u.deg / u.day * duration
 
-    return Longitude(rotation.to(u.deg))
+    result = Longitude(rotation.to(u.deg))
+    if _sc.enabled():
+        _sc.check_diffrot(duration, latitude, model, frame_time, result)
+    return result

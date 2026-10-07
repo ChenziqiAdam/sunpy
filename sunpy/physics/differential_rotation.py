@@ -7,6 +7,7 @@ from astropy.coordinates import BaseCoordinateFrame, SkyCoord
 from astropy.time import TimeDelta
 
 import sunpy.sun.models
+from sunpy import _scientific_checkers as _sc
 from sunpy.coordinates import (
     Heliocentric,
     HeliographicStonyhurst,
@@ -201,7 +202,10 @@ def solar_rotate_coordinate(coordinate, observer=None, time=None, **diff_rot_kwa
     else:
         frame_newobs = coordinate.frame.replicate_without_data(obstime=new_observer.obstime)
     with transform_with_sun_center():
-        return heliographic_rotated.transform_to(frame_newobs)
+        result = heliographic_rotated.transform_to(frame_newobs)
+    if _sc.enabled():
+        _sc.check_solar_rotate(coordinate, observer, new_observer, diff_rot_kwargs, result)
+    return result
 
 
 def _rotate_submap_edge(smap, pixels, observer, **diff_rot_kwargs):

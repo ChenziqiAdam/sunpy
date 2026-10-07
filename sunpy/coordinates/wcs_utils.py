@@ -6,6 +6,7 @@ from astropy.wcs import WCS
 from astropy.wcs.utils import obsgeo_to_frame
 from astropy.wcs.wcsapi.fitswcs import custom_ctype_to_ucd_mapping
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from .frames import (
     Heliocentric,
@@ -206,6 +207,9 @@ def solar_frame_to_wcs_mapping(frame, projection='TAN'):
         return None
 
     wcs.wcs.ctype = [xcoord, ycoord]
+
+    if _sc.enabled():
+        _sc.check_frame_wcs(frame, wcs)
 
     return wcs
 

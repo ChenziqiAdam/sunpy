@@ -26,6 +26,7 @@ from astropy.coordinates.builtin_frames.utils import get_jd12
 from astropy.coordinates.representation import CartesianRepresentation, SphericalRepresentation
 from astropy.time import Time
 
+from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.sun import constants
 from sunpy.time import parse_time
@@ -66,7 +67,10 @@ def angular_radius(t='now'):
 
 def _angular_radius(sol_radius, distance):
     solar_semidiameter_rad = np.arcsin(sol_radius / distance)
-    return Angle(solar_semidiameter_rad.to(u.arcsec))
+    result = Angle(solar_semidiameter_rad.to(u.arcsec))
+    if _sc.enabled():
+        _sc.check_angular_radius(sol_radius, distance, result)
+    return result
 
 
 @u.quantity_input
@@ -154,6 +158,8 @@ def carrington_rotation_time(crot, longitude: u.deg = None):
     estimate = refine(estimate)
     t = Time(estimate, scale='tt', format='jd').utc
     t.format = 'iso'
+    if _sc.enabled():
+        _sc.check_carrington_roundtrip(crot, t)
     return t
 
 
@@ -188,7 +194,10 @@ def carrington_rotation_number(t='now'):
 
     log.debug(f"Carrington rotation number: estimate is {estimate}, actual is {actual}")
 
-    return actual.to_value(u.one)
+    result = actual.to_value(u.one)
+    if _sc.enabled():
+        _sc.check_carrington_number(time, result)
+    return result
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -235,7 +244,10 @@ def apparent_longitude(t='now'):
     # Astropy's GeocentricTrueEcliptic includes both aberration and nutation
     lon = coord.lon
 
-    return Longitude(lon)
+    result = Longitude(lon)
+    if _sc.enabled():
+        _sc.check_apparent_lon(time, result)
+    return result
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -387,7 +399,10 @@ def true_obliquity_of_ecliptic(t='now'):
     obl = erfa.obl06(jd1, jd2)*u.radian
     _, nut_obl = erfa.nut06a(jd1, jd2)*u.radian
     obl += nut_obl
-    return Angle(obl, u.arcsec)
+    result = Angle(obl, u.arcsec)
+    if _sc.enabled():
+        _sc.check_obliquity(time, result)
+    return result
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -419,7 +434,10 @@ def apparent_rightascension(t='now', equinox_of_date=True):
         sun = SkyCoord(0*u.deg, 0*u.deg, 0*u.AU, frame='hcrs', obstime=parse_time(t))
         result = sun.gcrs.ra
 
-    return Longitude(result, u.hourangle)
+    out = Longitude(result, u.hourangle)
+    if equinox_of_date and _sc.enabled():
+        _sc.check_apparent_equatorial(t, out, 'ra')
+    return out
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -449,7 +467,10 @@ def apparent_declination(t='now', equinox_of_date=True):
         sun = SkyCoord(0*u.deg, 0*u.deg, 0*u.AU, frame='hcrs', obstime=parse_time(t))
         result = sun.gcrs.dec
 
-    return Latitude(result, u.deg)
+    out = Latitude(result, u.deg)
+    if equinox_of_date and _sc.enabled():
+        _sc.check_apparent_equatorial(t, out, 'dec')
+    return out
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -497,7 +518,10 @@ def B0(time='now'):
     out : `~astropy.coordinates.Latitude`
         The position angle
     """
-    return Latitude(get_earth(time).lat)
+    result = Latitude(get_earth(time).lat)
+    if _sc.enabled():
+        _sc.check_b0(time, result)
+    return result
 
 
 # Function returns a SkyCoord's longitude in the de-tilted frame (HCRS rotated so that the Sun's
@@ -597,7 +621,10 @@ def L0(time='now',
     dlon_meridian = Longitude(_DLON_MERIDIAN + (antetime - _J2000)
                               * constants.sidereal_rotation_rate)
 
-    return Longitude(dlon_earth - dlon_meridian)
+    result = Longitude(dlon_earth - dlon_meridian)
+    if _sc.enabled():
+        _sc.check_disk_center(obstime, result, light_travel_time_correction, nearest_point, aberration_correction)
+    return result
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -642,7 +669,10 @@ def earth_distance(time='now'):
     """
     obstime = parse_time(time)
     vector = get_body_barycentric('earth', obstime) - get_body_barycentric('sun', obstime)
-    return Distance(vector.norm())
+    result = Distance(vector.norm())
+    if _sc.enabled():
+        _sc.check_earth_distance(obstime, result)
+    return result
 
 
 @add_common_docstring(**_variables_for_parse_time_docstring())
@@ -808,4 +838,6 @@ def eclipse_amount(observer, *, moon_radius: Literal['IAU', 'minimum'] = 'IAU'):
     # Clip the result to remove <0% and >100% due to numerical precision
     fraction = np.clip(fraction, 0, 1)
 
+    if _sc.enabled():
+        _sc.check_eclipse(s, m, d, fraction)
     return u.Quantity(fraction.reshape(observer.data.shape)).to(u.percent)
