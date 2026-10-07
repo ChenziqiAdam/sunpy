@@ -533,7 +533,8 @@ def check_great_arc(arc, points, pts_cartesian):
 
     a1 = angle(np.broadcast_to(v1, w.shape), w)
     a2 = angle(w, np.broadcast_to(v2, w.shape))
-    tol = _C * _EPS / sin_t
+    # the points are O(|center|) floats: absolute rounding C eps |center|, as an angle about the center
+    tol = _C * _EPS * (1.0 + np.linalg.norm(arc.center_cartesian) / max(np.linalg.norm(v1), np.finfo(np.float64).tiny)) / sin_t
     trigger_if(np.any(np.abs(a1 - p * theta) > tol) or np.any(np.abs(a2 - (1 - p) * theta) > tol), "SP-FRM-006")
 
 
@@ -554,9 +555,11 @@ def check_spherical_screen(centre, unit_rep, distance, radius):
     ok = np.isfinite(dist_to_centre) & np.isfinite(d)
     if not np.any(ok):
         return
-    tol = 1e-9 * r + _C * _EPS * cnorm
+    # d solves a quadratic with eps |c|^2 of cancellation; that moves the point by eps |c|^2 / r along the ray
+    # (second order in the tangent direction), and the near/far roots merge within sqrt(C eps) |c| of tangency
+    tol = 1e-9 * r + _C * _EPS * (cnorm + cnorm**2 / r)
     proj = np.sum(uvec * c, axis=0)
-    bad = (np.abs(dist_to_centre - r) > tol) | (d < proj - tol)
+    bad = (np.abs(dist_to_centre - r) > tol) | (d < proj - np.sqrt(_C * _EPS) * cnorm - tol)
     trigger_if(np.any(ok & bad), "SP-SCR-001")
 
 
@@ -610,7 +613,10 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     drot = differential_rotation(interval, hgs_old.lat.to(u.deg), **diff_rot_kwargs)
     d = _wrap180((inertial_lon(result, new_observer.obstime) - inertial_lon(coordinate, coordinate.obstime) - drot).to_value(u.deg))
     fin = np.isfinite(d)
-    trigger_if(np.any(fin & (np.abs(d) > 1e-8)), "SP-DRC-002")
+    # the longitude is conditioned as 1/cos(latitude): the rounding of the O(1 AU) transform is C eps rad there
+    cos_lat = np.maximum(np.cos(hgs_old.lat.to_value(u.rad)), 1e-12)
+    tol = 1e-8 + np.rad2deg(1e3 * _EPS) / cos_lat
+    trigger_if(np.any(fin & (np.abs(d) > tol)), "SP-DRC-002")
 
     # 001: reversible (only when an explicit observer was supplied)
     if observer_arg is None or old_obs.obstime != coordinate.obstime:
@@ -622,7 +628,11 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     dty = (back.Ty - ref.Ty).to_value(u.arcsec)
     dd = np.abs((back.distance - ref.distance).to_value(u.m))
     ok = np.isfinite(dtx) & np.isfinite(dty) & np.isfinite(dd)
-    bad = (np.abs(dtx) > 1e-6) | (np.abs(dty) > 1e-6) | (dd > 1e-12 * np.abs(ref.distance.to_value(u.m)))
+    # positions are O(L) floats, L the largest observer distance involved: rounding C eps L, seen from distance d
+    dm = np.abs(ref.distance.to_value(u.m))
+    big_l = float(np.nanmax([np.nanmax(old_obs.radius.to_value(u.m)), np.nanmax(new_observer.radius.to_value(u.m)), np.nanmax(dm)]))
+    ang = 1e-6 + np.rad2deg(_C * _EPS * big_l / dm) * 3600.0
+    bad = (np.abs(dtx) > ang) | (np.abs(dty) > ang) | (dd > 1e-12 * dm + _C * _EPS * big_l)
     trigger_if(np.any(ok & bad), "SP-DRC-001")
 
 
@@ -890,5 +900,8 @@ def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape
     tol2 = 1e-9 + np.deg2rad(abs(s2)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s2)
     # world coordinates are O(360 deg) floats: absolute rounding C eps 360 deg, expressed in pixels
     coord_tol = 1e-9 + _C * _EPS * 360.0 / max(abs(s1), abs(s2))
-    bad = err > coord_tol or abs(step1 - abs(s1)) > tol1 * abs(s1) or abs(step2 - abs(s2)) > tol2 * abs(s2)
+    # cdelt is the step in the native plane; it equals the sky step at the reference point only where the
+    # projection has unit local scale there (zenithal, CAR, MER, CEA, SFL), not e.g. MOL, PAR, HPX, TSC, CSC, QSC
+    unit_scale = str(meta_wcs["ctype1"])[-3:].upper() in {"TAN", "SIN", "ARC", "STG", "ZEA", "CAR", "MER", "CEA", "SFL"}
+    bad = err > coord_tol or (unit_scale and (abs(step1 - abs(s1)) > tol1 * abs(s1) or abs(step2 - abs(s2)) > tol2 * abs(s2)))
     trigger_if(bad, "SP-WCS-002")
