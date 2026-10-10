@@ -172,7 +172,7 @@
       "symbol": "L0"
     },
     {
-      "alarm": "wrapped difference `> C*eps*(|A|+|B|+|C|)*|dt|`",
+      "alarm": "wrapped difference `> C*eps*max((|A|+|B|+|C|)*|dt|, 360 deg)`",
       "family": "diffrot_hemisphere_symmetry",
       "id": "SP-DRM-001",
       "invariant": "rotation at `-lat` equals rotation at `+lat` (the rate depends on `sin^2`)",
@@ -196,7 +196,7 @@
       "symbol": "differential_rotation"
     },
     {
-      "alarm": "wrapped difference `> C*eps*(|A|+|B|+|C|)*|dt|` in degrees",
+      "alarm": "wrapped difference `> C*eps*max((|A|+|B|+|C|)*|dt|, 360 deg)` in degrees",
       "family": "diffrot_linearity",
       "id": "SP-DRM-003",
       "invariant": "`rot(dt) = 2 rot(dt/2)` modulo 360 deg",
@@ -220,7 +220,7 @@
       "symbol": "differential_rotation"
     },
     {
-      "alarm": "wrapped difference from the expected shift `> 1e-4 * 0.9856 deg/d * |dt| + C*eps*scale`",
+      "alarm": "wrapped difference from the expected shift `> 1e-4 * 0.9856 deg/d * |dt| + C*eps*max(scale, 360 deg)`",
       "family": "diffrot_synodic_correction",
       "id": "SP-DRM-005",
       "invariant": "sidereal minus synodic rotation equals `360 deg / 365.256363 d` times the elapsed time (mod 360)",
@@ -388,7 +388,7 @@
       "symbol": "GenericMap.rotate"
     },
     {
-      "alarm": "non-integer offset `> 1e-6`, scale change `> 1e-12` relative, or data mismatch",
+      "alarm": "non-integer offset `> 1e-6 + C*eps*180 deg / (pixel scale in deg)` (world-to-pixel round-trip conditioning), scale change `> 1e-12` relative, or data mismatch",
       "family": "map_submap_grid",
       "id": "SP-MAP-005",
       "invariant": "the submap's pixel `(0,0)` corresponds to an integer pixel `(x0,y0)` of the parent, the scale is unchanged, and the data equal `parent[y0:y0+ny, x0:x0+nx]`",

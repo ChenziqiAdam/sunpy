@@ -364,7 +364,8 @@ def check_diffrot(duration, latitude, model, frame_time, result):
         scale = abc.sum() * dt_s
     scale = scale + 0.9856 / 86400.0 * dt_s
     eps = _eps_of(latitude, duration)
-    tol = _C * eps * np.maximum(scale, 1.0)
+    # Longitude output is wrapped into [0, 360): absolute round-off up to eps*360 deg per value
+    tol = _C * eps * np.maximum(scale, 360.0)
 
     # 001: hemisphere symmetry
     flip = dr(duration, -lat, model=model, frame_time=frame_time).to_value(u.deg)
@@ -752,7 +753,9 @@ def check_submap(parent, sub):
     if not (np.all(np.isfinite(x0)) and np.all(np.isfinite(y0))):
         return
     ix, iy = int(np.rint(x0[0])), int(np.rint(y0[0]))
-    grid = abs(x0[0] - ix) > 1e-6 or abs(y0[0] - iy) > 1e-6
+    # world<->pixel round trip loses ~eps*180 deg absolute, i.e. eps*180/scale_deg pixels
+    gtol = 1e-6 + _C * _EPS * 180.0 / min(_scale_deg(parent), _scale_deg(sub))
+    grid = abs(x0[0] - ix) > gtol or abs(y0[0] - iy) > gtol
     ps = np.array([parent.scale.axis1.to_value(u.arcsec / u.pix), parent.scale.axis2.to_value(u.arcsec / u.pix)])
     ss = np.array([sub.scale.axis1.to_value(u.arcsec / u.pix), sub.scale.axis2.to_value(u.arcsec / u.pix)])
     scale_bad = np.any(np.abs(ps - ss) > 1e-12 * np.abs(ps))
