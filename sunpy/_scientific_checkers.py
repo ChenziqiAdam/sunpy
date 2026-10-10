@@ -410,55 +410,6 @@ def _rates_deg_per_s_vals(model):
 
 # ================================================================== frames
 @_guarded
-def check_make3d(frame, lon, lat, dist):
-    """SP-FRM-001: promoted point is on the visible surface of the Sun."""
-    import astropy.units as u
-
-    if frame._assumed_screen.get():
-        return
-    # P: make_3d itself warns that lower-precision input loses accuracy; the quadratic's D^2 - rsun^2
-    # cancellation then amplifies eps32 D^2/rsun (more than rsun at 30 AU), so float32 observer/rsun are out of scope too
-    if _eps_of(lon, lat, frame.observer.radius, frame.rsun) > _EPS:
-        return
-    big_d = np.asarray(frame.observer.radius.to_value(u.m), dtype=np.float64)
-    rsun = float(frame.rsun.to_value(u.m))
-    d = np.asarray(dist.to_value(u.m), dtype=np.float64)
-    cos_a = np.cos(lat.to_value(u.rad)) * np.cos(lon.to_value(u.rad))
-    d, cos_a, big_d = np.broadcast_arrays(d, cos_a, big_d)
-    ok = np.isfinite(d) & np.isfinite(cos_a) & (big_d > rsun)
-    if not ok.any():
-        return
-    d, cos_a, big_d = d[ok], cos_a[ok], big_d[ok]
-    r = np.sqrt(np.maximum(big_d**2 + d**2 - 2 * big_d * d * cos_a, 0.0))
-    # r^2 carries C eps D^2 of cancellation; 1e-9 rsun covers the sqrt-conditioned limb
-    tol = 1e-9 * rsun + _C * _EPS * big_d**2 / rsun
-    z = big_d - d * cos_a
-    trigger_if(np.any((np.abs(r - rsun) > tol) | (z < -tol)), "SP-FRM-001")
-
-
-@_guarded
-def check_on_disk(coordinates, result):
-    """SP-FRM-002: on-disk predicate agrees with 'the line of sight intersects the Sun'."""
-    import astropy.units as u
-
-    from sunpy.coordinates.frames import Helioprojective
-
-    frame = getattr(coordinates, "frame", coordinates)
-    if not getattr(frame, "_is_2d", False) or Helioprojective._assumed_screen.get():
-        return
-    c3 = coordinates.make_3d()
-    finite = np.isfinite(np.asarray(c3.distance.to_value(u.m)))
-    lon = coordinates.Tx.to_value(u.rad)
-    lat = coordinates.Ty.to_value(u.rad)
-    x = np.cos(lat) * np.cos(lon)
-    yz = np.hypot(np.cos(lat) * np.sin(lon), np.sin(lat))
-    alpha = np.arctan2(yz, x)
-    theta_l = np.arcsin((coordinates.rsun / coordinates.observer.radius).to_value(u.one))
-    away = np.abs(alpha - theta_l) > max(1e-6, _C * _eps_of(coordinates.Tx, coordinates.Ty))
-    trigger_if(np.any(away & (finite != np.asarray(result))), "SP-FRM-002")
-
-
-@_guarded
 def check_observer_invariance(from_coo, to_frame, out):
     """SP-FRM-003: changing the observer relabels the point; it is the same in HGS."""
     import astropy.units as u

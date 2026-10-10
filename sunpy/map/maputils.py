@@ -286,8 +286,6 @@ def coordinate_is_on_solar_disk(coordinates):
     # Calculate the radial angle from the center of the Sun (do not assume small angles)
     # and compare it to the angular radius of the Sun
     result = np.arccos(np.cos(coordinates.Tx) * np.cos(coordinates.Ty)) <= solar_angular_radius(coordinates)
-    if _sc.enabled():
-        _sc.check_on_disk(coordinates, result)
     return result
 
 

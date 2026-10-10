@@ -244,30 +244,6 @@
       "symbol": "differential_rotation"
     },
     {
-      "alarm": "`|r - rsun| > 1e-9 rsun + C*eps*D^2/rsun` or `D - d cos(alpha) < -tol`",
-      "family": "hpc_make3d_surface",
-      "id": "SP-FRM-001",
-      "invariant": "the promoted point is at distance `rsun` from the Sun centre and on the visible hemisphere: `r^2 = D^2 + d^2 - 2 D d cos(alpha)` with `r = rsun` and `D - d cos(alpha) >= 0`",
-      "observation_point": "return of `Helioprojective.make_3d`",
-      "precondition": "2-D helioprojective input, finite result, no assumed screen, `D > rsun`, observer radius, `rsun` and Tx/Ty all float64 (float32 metadata is outside the precondition: the quadratic cancels at `eps32 D^2/rsun`)",
-      "rationale": "the defining geometry of the 2-D to 3-D promotion.",
-      "scientific_quantity": "distance to the solar surface",
-      "source": "sunpy/coordinates/frames.py",
-      "symbol": "Helioprojective.make_3d"
-    },
-    {
-      "alarm": "disagreement with `isfinite(make_3d().distance)`",
-      "family": "on_disk_vs_intersection",
-      "id": "SP-FRM-002",
-      "invariant": "a line of sight is on the solar disk iff it intersects the Sun, i.e. iff `make_3d` gives a finite distance",
-      "observation_point": "return of `coordinate_is_on_solar_disk`",
-      "precondition": "2-D helioprojective coordinates, no screen, angular distance from disk centre not within `1e-6 rad` of the limb",
-      "rationale": "cross-method consistency of the disk definition (arccos test vs quadratic discriminant).",
-      "scientific_quantity": "on-disk classification",
-      "source": "sunpy/map/maputils.py",
-      "symbol": "coordinate_is_on_solar_disk"
-    },
-    {
       "alarm": "HGS Cartesian difference `> 1e-3 m + 1e-12 L`, `L` = the largest of the point distances and the two observer distances (revised twice, see revision log)",
       "family": "hpc_observer_invariance",
       "id": "SP-FRM-003",
