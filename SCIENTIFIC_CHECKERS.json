@@ -4,7 +4,7 @@
   "note": "Complete public scientific-checker bank. Inactive unless SCIBENCH_TRIGGER_LOG is set.",
   "checkers": [
     {
-      "alarm": "`theta_rad < x*(1 - C*eps)` or `theta_rad > x/sqrt(1-x^2) * (1 + C*eps)`; the slack is a few ulps of `theta` (arcsin plus two unit conversions through arcsec)",
+      "alarm": "`theta_rad < x*(1 - C*eps)` or `theta_rad > x/sqrt(1-x^2) * (1 + C*eps)`; the slack is a few ulps of `theta` in the working precision of radius, distance and theta (float32 inputs give float32 slack) (arcsin plus two unit conversions through arcsec)",
       "family": "angular_radius_geometry",
       "id": "SP-EPH-001",
       "invariant": "with `x = R/D`, the angular radius `theta` of a sphere seen from distance `D` satisfies `x <= theta <= x/sqrt(1-x^2)` (arc vs chord vs tangent)",
@@ -249,7 +249,7 @@
       "id": "SP-FRM-001",
       "invariant": "the promoted point is at distance `rsun` from the Sun centre and on the visible hemisphere: `r^2 = D^2 + d^2 - 2 D d cos(alpha)` with `r = rsun` and `D - d cos(alpha) >= 0`",
       "observation_point": "return of `Helioprojective.make_3d`",
-      "precondition": "2-D helioprojective input, finite result, no assumed screen, `D > rsun`",
+      "precondition": "2-D helioprojective input, finite result, no assumed screen, `D > rsun`, observer radius, `rsun` and Tx/Ty all float64 (float32 metadata is outside the precondition: the quadratic cancels at `eps32 D^2/rsun`)",
       "rationale": "the defining geometry of the 2-D to 3-D promotion.",
       "scientific_quantity": "distance to the solar surface",
       "source": "sunpy/coordinates/frames.py",
@@ -292,7 +292,7 @@
       "symbol": "get_heliocentric_angle"
     },
     {
-      "alarm": "any point's angular distance (via `atan2` of the HPC Cartesian vector, no cancellation) differs by `> 1e-9 theta + C*eps`",
+      "alarm": "any point's angular distance (via `atan2` of the HPC Cartesian vector, no cancellation) differs by `> max(1e-9, C*eps_in) theta + C*eps`, `eps_in` the largest unit round-off of observer radius and `rsun`",
       "family": "limb_angular_radius",
       "id": "SP-FRM-005",
       "invariant": "every limb point seen from the observer has angular distance `arcsin(rsun/D)` from the disk centre",
@@ -316,7 +316,7 @@
       "symbol": "GreatArc.coordinates"
     },
     {
-      "alarm": "`| |d u - C| - R | > 1e-9 R + C*eps*|C|` or `d < C.u - tol`",
+      "alarm": "`| |d u - C| - R | > 1e-9 R + C*eps*(|C| + |C|^2/R) + C*eps_in*(R + |C|)` (`eps_in` the largest unit round-off of centre, distance, radius) or `d < C.u - tol`",
       "family": "spherical_screen_surface",
       "id": "SP-SCR-001",
       "invariant": "the promoted point `d u` is at distance `R` from the sphere centre and `d >= C.u` (the far intersection)",
@@ -328,7 +328,7 @@
       "symbol": "SphericalScreen.calculate_distance"
     },
     {
-      "alarm": "residual `|delta/distance| > 1e-9` for any element",
+      "alarm": "residual `|delta/distance| > 1e-9` for an element for which the residual changes sign continuously (a root, not a pole) on a log grid 0.05-20 x the returned distance, i.e. a root exists that the solver failed to reach",
       "family": "screen_iteration_convergence",
       "id": "SP-SCR-002",
       "invariant": "at the returned distance the 3D->2D->3D shift is below the solver tolerance (documented 1e-11, accepted 1e-9)",

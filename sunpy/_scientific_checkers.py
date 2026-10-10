@@ -139,8 +139,10 @@ def check_angular_radius(radius, distance, theta):
         return
     x, th = x[ok], th[ok]
     # theta carries a few ulps (arcsin plus two unit conversions): C * eps * theta
-    lo = x * (1.0 - _C * _EPS)
-    hi = x / np.sqrt(1.0 - x * x) * (1.0 + _C * _EPS)
+    # (float32 radius/distance make theta itself a float32 result: slack scales with its unit round-off)
+    eps = _eps_of(radius, distance, theta)
+    lo = x * (1.0 - _C * eps)
+    hi = x / np.sqrt(1.0 - x * x) * (1.0 + _C * eps)
     trigger_if(np.any((th < lo) | (th > hi)), "SP-EPH-001")
 
 
@@ -414,7 +416,9 @@ def check_make3d(frame, lon, lat, dist):
 
     if frame._assumed_screen.get():
         return
-    if _eps_of(lon, lat) > _EPS:  # P: make_3d itself warns that lower-precision input loses accuracy
+    # P: make_3d itself warns that lower-precision input loses accuracy; the quadratic's D^2 - rsun^2
+    # cancellation then amplifies eps32 D^2/rsun (more than rsun at 30 AU), so float32 observer/rsun are out of scope too
+    if _eps_of(lon, lat, frame.observer.radius, frame.rsun) > _EPS:
         return
     big_d = np.asarray(frame.observer.radius.to_value(u.m), dtype=np.float64)
     rsun = float(frame.rsun.to_value(u.m))
@@ -514,7 +518,9 @@ def check_limb(limb, observer, rsun):
     yz = np.hypot(np.cos(lat) * np.sin(lon), np.sin(lat))
     alpha = np.arctan2(yz, x)
     theta_l = float(np.arcsin((rsun / observer.radius).to_value(u.one)))
-    trigger_if(np.any(np.abs(alpha - theta_l) > 1e-9 * theta_l + _C * _EPS), "SP-FRM-005")
+    # the limb is built from observer.radius and rsun: their unit round-off (float32 metadata) enters theta_l relatively
+    eps = _eps_of(observer.radius, rsun)
+    trigger_if(np.any(np.abs(alpha - theta_l) > max(1e-9, _C * eps) * theta_l + _C * _EPS), "SP-FRM-005")
 
 
 @_guarded
@@ -557,7 +563,9 @@ def check_spherical_screen(centre, unit_rep, distance, radius):
         return
     # d solves a quadratic with eps |c|^2 of cancellation; that moves the point by eps |c|^2 / r along the ray
     # (second order in the tangent direction), and the near/far roots merge within sqrt(C eps) |c| of tangency
-    tol = 1e-9 * r + _C * _EPS * (cnorm + cnorm**2 / r)
+    # float32 radius/distance/centre: their unit round-off enters the sphere radius relatively
+    eps_in = _eps_of(radius, distance, centre.xyz)
+    tol = 1e-9 * r + _C * _EPS * (cnorm + cnorm**2 / r) + _C * eps_in * (r + cnorm)
     proj = np.sum(uvec * c, axis=0)
     bad = (np.abs(dist_to_centre - r) > tol) | (d < proj - np.sqrt(_C * _EPS) * cnorm - tol)
     trigger_if(np.any(ok & bad), "SP-SCR-001")
@@ -574,7 +582,42 @@ def check_screen_iteration(screen, coord, distance, screen_frame):
     native_2d = native_3d.realize_frame(native_3d.represent_as(UnitSphericalRepresentation))
     delta = screen.calculate_distance(native_2d) - native_3d.spherical.distance
     rel = np.abs((delta / distance).to_value(u.one))
-    trigger_if(np.any(np.isfinite(rel) & (rel > 1e-9)), "SP-SCR-002")
+    bad = np.isfinite(rel) & (rel > 1e-9)
+    if not np.any(bad):
+        return
+
+    # A residual alone is not a defect: where the ray never meets the rotated screen the fixed-point equation has no
+    # root and the library's warned best guess is legitimate. Count an element only if the residual delta(d) (d the
+    # distance along the ray) changes sign continuously (a root, not a pole) somewhere on a wide log grid around the
+    # returned distance, so a root exists that the solver failed to reach.
+    def delta_of(c, dist):
+        o3 = c.realize_frame(c.represent_as(UnitSphericalRepresentation) * dist)
+        n3 = o3.transform_to(screen_frame)
+        n2 = n3.realize_frame(n3.represent_as(UnitSphericalRepresentation))
+        return np.atleast_1d((screen.calculate_distance(n2) - n3.spherical.distance).to_value(u.m))
+
+    coords = np.atleast_1d(coord)
+    dists = distance.reshape(-1) if distance.ndim else distance.reshape(1)
+    fac = np.exp(np.linspace(np.log(0.05), np.log(20.0), 241))  # 0.05-20 x the returned distance, ~2.5 % steps
+    for i in np.nonzero(np.atleast_1d(bad).reshape(-1))[0]:
+        ci, di = coords.reshape(-1)[i], dists[i]
+        vals = delta_of(ci, di * fac)
+        ok = np.isfinite(vals[:-1]) & np.isfinite(vals[1:]) & (vals[:-1] * vals[1:] < 0)
+        for j in np.nonzero(ok)[0]:
+            lo, hi, flo = float(fac[j]), float(fac[j + 1]), vals[j]
+            for _ in range(60):  # bisect; a pole (jump) keeps a large |delta|, a root drives it to zero
+                mid = 0.5 * (lo + hi)
+                fm = delta_of(ci, di * mid)[0]
+                if not np.isfinite(fm):
+                    break
+                if fm * flo > 0:
+                    lo, flo = mid, fm
+                else:
+                    hi = mid
+            else:
+                if abs(fm) / float((di * mid).to_value(u.m)) < 1e-6:
+                    trigger_if(True, "SP-SCR-002")
+                    return
 
 
 # ======================================================== rotated coordinates
@@ -748,7 +791,7 @@ def check_submap(parent, sub):
     data_bad = False
     py, px = parent.data.shape
     if 0 <= ix and 0 <= iy and ix + nx <= px and iy + ny <= py:
-        data_bad = not np.array_equal(sub.data, parent.data[iy:iy + ny, ix:ix + nx], equal_nan=sub.data.dtype.kind == "f")
+        data_bad = not np.array_equal(sub.data, parent.data[iy:iy + ny, ix:ix + nx], equal_nan=sub.data.dtype.kind in "fc")
     trigger_if(grid or scale_bad or data_bad, "SP-MAP-005")
 
 
