@@ -1951,7 +1951,7 @@ class GenericMap(NDData):
         # Create new map with the modification
         new_map = self._new_instance(new_data, new_meta, self.plot_settings)
         if _sc.enabled():
-            _sc.check_rotate_center(self, new_map, recenter)
+            _sc.check_rotate_center(self, new_map, recenter, rmatrix)
 
         return new_map
 

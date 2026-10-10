@@ -280,7 +280,7 @@
       "symbol": "hpc_to_hpc"
     },
     {
-      "alarm": "relative difference `> 1e-8` of `sin(theta)`",
+      "alarm": "relative difference `> 1e-8` of `sin(theta)` (position evaluated in float64)",
       "family": "heliocentric_angle_sine_rule",
       "id": "SP-FRM-004",
       "invariant": "`sin(theta) = (D/r) sin(alpha)`, where `alpha` is the angle at the observer between the disk centre and the point (triangle observer-Sun centre-point)",
@@ -304,7 +304,7 @@
       "symbol": "get_limb_coordinates"
     },
     {
-      "alarm": "any angle error `> 64 eps / sin(Theta)`",
+      "alarm": "any angle error `> 64 eps / sin(Theta)`, `eps` the largest floating epsilon among the start, end and centre coordinates",
       "family": "great_arc_uniform_angle",
       "id": "SP-FRM-006",
       "invariant": "the point at parameter `p` makes angle `p*Theta` with the start vector and `(1-p)*Theta` with the end vector (angles measured from the arc centre), independent of radius",
@@ -340,7 +340,7 @@
       "symbol": "BaseScreen._iterate_calculate_distance"
     },
     {
-      "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` or `|d distance| > 1e-12 D`",
+      "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` plus a round-off allowance (`64 eps` relative to the angular offset and to `L/d`, `eps` the largest floating epsilon among the input components and observer radii), or `|d distance| > 1e-12 D` plus `64 eps L`",
       "family": "solar_rotate_reversible",
       "id": "SP-DRC-001",
       "invariant": "rotating to a new observer/time and back to the original observer/time recovers the 3-D input",
@@ -400,7 +400,7 @@
       "symbol": "resample"
     },
     {
-      "alarm": "centre moves by `> 1e-6` old pixel scales",
+      "alarm": "centre moves by `> 1e-6` old pixel scales plus `64 eps d`, `d` the pixel distance of the reference pixel from the array centre and `eps` the epsilon of the rotation matrix dtype",
       "family": "map_rotate_center",
       "id": "SP-MAP-004",
       "invariant": "the array-centre pixel has the same world coordinate before and after `rotate` (padding and cropping are symmetric)",
@@ -453,7 +453,7 @@
       "id": "SP-MAP-008",
       "invariant": "when the edge test says all off disk, no pixel centre is on the disk",
       "observation_point": "return of `is_all_off_disk`",
-      "precondition": "as MAP-007 and disk angular radius `>= 2` pixels",
+      "precondition": "as MAP-007, and disk angular radius `>= 2` pixel steps, a step being the longest lattice vector of the full pixel-to-sky linear map (`PC` scaled by `CDELT`)",
       "rationale": "shortcut vs exhaustive cross-check.",
       "scientific_quantity": "disk-coverage class",
       "source": "sunpy/map/maputils.py",
@@ -472,10 +472,10 @@
       "symbol": "resample"
     },
     {
-      "alarm": "any differs by `> 1e-12` relative (`1 ms` for time)",
+      "alarm": "any differs by `> 1e-12` relative (time: beyond that resolution)",
       "family": "frame_wcs_roundtrip",
       "id": "SP-WCS-001",
-      "invariant": "converting a frame to a WCS and back recovers frame class, `obstime` (to 1 ms, FITS precision), `rsun` and observer lon/lat/radius",
+      "invariant": "converting a frame to a WCS and back recovers frame class, `obstime` (to the resolution of the written time string: 1 ms or the frame time's `precision`, whichever is coarser), `rsun` and observer lon/lat/radius",
       "observation_point": "return of `solar_frame_to_wcs_mapping`",
       "precondition": "Sun-fixed frame with an HGS/HGC observer frame",
       "rationale": "serialization must be lossless.",

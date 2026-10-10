@@ -489,8 +489,11 @@ def check_helio_angle(coord, angle):
     import astropy.units as u
 
     hcc = coord.heliocentric
-    p = np.asarray(hcc.cartesian.xyz.to_value(u.m), dtype=np.float64)
-    big_d = np.asarray(hcc.observer.radius.to_value(u.m), dtype=np.float64)
+    # convert in float64: a unit multiplication in the input's float32 would round the position
+    xyz = hcc.cartesian.xyz
+    p = np.asarray(xyz.value, dtype=np.float64) * xyz.unit.to(u.m)
+    rad = hcc.observer.radius
+    big_d = np.asarray(rad.value, dtype=np.float64) * rad.unit.to(u.m)
     o = np.zeros_like(p)
     o[2] = big_d
     to_sun = -o
@@ -540,7 +543,9 @@ def check_great_arc(arc, points, pts_cartesian):
     a1 = angle(np.broadcast_to(v1, w.shape), w)
     a2 = angle(w, np.broadcast_to(v2, w.shape))
     # the points are O(|center|) floats: absolute rounding C eps |center|, as an angle about the center
-    tol = _C * _EPS * (1.0 + np.linalg.norm(arc.center_cartesian) / max(np.linalg.norm(v1), np.finfo(np.float64).tiny)) / sin_t
+    # (float32 start/end/centre: their own unit round-off)
+    eps_in = _eps_of(v1, v2, arc.center_cartesian)
+    tol = _C * eps_in * (1.0 + np.linalg.norm(arc.center_cartesian) / max(np.linalg.norm(v1), np.finfo(np.float64).tiny)) / sin_t
     trigger_if(np.any(np.abs(a1 - p * theta) > tol) or np.any(np.abs(a2 - (1 - p) * theta) > tol), "SP-FRM-006")
 
 
@@ -674,8 +679,12 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     # positions are O(L) floats, L the largest observer distance involved: rounding C eps L, seen from distance d
     dm = np.abs(ref.distance.to_value(u.m))
     big_l = float(np.nanmax([np.nanmax(old_obs.radius.to_value(u.m)), np.nanmax(new_observer.radius.to_value(u.m)), np.nanmax(dm)]))
-    ang = 1e-6 + np.rad2deg(_C * _EPS * big_l / dm) * 3600.0
-    bad = (np.abs(dtx) > ang) | (np.abs(dty) > ang) | (dd > 1e-12 * dm + _C * _EPS * big_l)
+    # float32 coordinate components or observer radius enter the round trip at their own unit round-off,
+    # relative to the angular offset itself (Tx, Ty in arcsec) and to the distances
+    eps_in = _eps_of(coordinate.Tx, coordinate.Ty, ref.distance, old_obs.radius, new_observer.radius)
+    off = float(np.nanmax(np.maximum(np.abs(ref.Tx.to_value(u.arcsec)), np.abs(ref.Ty.to_value(u.arcsec)))))
+    ang = 1e-6 + np.rad2deg(_C * eps_in * big_l / dm) * 3600.0 + _C * eps_in * off
+    bad = (np.abs(dtx) > ang) | (np.abs(dty) > ang) | (dd > 1e-12 * dm + _C * eps_in * big_l)
     trigger_if(np.any(ok & bad), "SP-DRC-001")
 
 
@@ -756,7 +765,7 @@ def check_resample_extrema(orig, dimensions, method, offset, m1, data):
 
 
 @_guarded
-def check_rotate_center(old, new, recenter):
+def check_rotate_center(old, new, recenter, rmatrix=None):
     """SP-MAP-004: rotation about the array centre keeps the centre coordinate."""
     if recenter:
         return
@@ -767,7 +776,15 @@ def check_rotate_center(old, new, recenter):
     ln, lb = _world(new, np.array([(mx - 1) / 2.0]), np.array([(my - 1) / 2.0]))
     if not (np.all(np.isfinite(lo)) and np.all(np.isfinite(ln))):
         return
-    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6, "SP-MAP-004")
+    # the centre is held fixed through the rotation matrix, applied to the offset of the reference pixel
+    # from the array centre: its unit round-off (float32 angle) scales with that offset
+    eps_in = _eps_of(rmatrix) if rmatrix is not None else _EPS
+    d_ref = 0.0
+    for m in (old, new):
+        my_, mx_ = m.data.shape
+        rx, ry = (float(v) for v in (m.reference_pixel.x.value, m.reference_pixel.y.value))
+        d_ref = max(d_ref, float(np.hypot(rx - (mx_ - 1) / 2.0, ry - (my_ - 1) / 2.0)))
+    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6 + _C * eps_in * d_ref, "SP-MAP-004")
 
 
 @_guarded
@@ -808,7 +825,11 @@ def _disk_pixels_ok(smap, min_radius_pixels=0.0):
     if max(nx, ny) * sc > 5.0:
         return False
     if min_radius_pixels:
-        if solar_angular_radius(smap.coordinate_frame).to_value(u.deg) < min_radius_pixels * sc:
+        # pixel step: the longest lattice vector of the full linear map (PC scaled by CDELT), not CDELT alone
+        pc = np.asarray(smap.rotation_matrix, dtype=np.float64)
+        cd = np.array([smap.scale.axis1.to_value(u.deg / u.pix), smap.scale.axis2.to_value(u.deg / u.pix)])
+        step = float(np.max(np.hypot(pc[0, :] * cd[0], pc[1, :] * cd[1])))
+        if solar_angular_radius(smap.coordinate_frame).to_value(u.deg) < min_radius_pixels * max(sc, step):
             return False
     return True
 
@@ -884,7 +905,9 @@ def check_frame_wcs(frame, wcs):
     back = solar_wcs_frame_mapping(wcs)
     bad = type(back) is not type(frame)
     if not bad and frame.obstime is not None:
-        bad = bool(abs((back.obstime - frame.obstime).to_value(u.s)) > 1e-3)
+        # DATE-OBS is written with the frame time's `precision` digits: the string resolves 10**-precision s
+        res = max(1e-3, 10.0 ** -int(getattr(frame.obstime, "precision", 3))) + 1e-6
+        bad = bool(abs((back.obstime - frame.obstime).to_value(u.s)) > res)
     if not bad and hasattr(frame, "rsun") and frame.rsun is not None:
         bad = bool(abs(back.rsun.to_value(u.m) - frame.rsun.to_value(u.m)) > 1e-12 * frame.rsun.to_value(u.m))
     obs = getattr(frame, "observer", None)
