@@ -784,20 +784,34 @@ def check_submap(parent, sub):
     ny, nx = sub.data.shape
     if ny == 0 or nx == 0:
         return
-    lon, lat = _world(sub, np.array([0.0]), np.array([0.0]))
-    x0, y0 = parent.wcs.wcs_world2pix(lon, lat, 0)
+    wp, ws = parent.wcs.wcs, sub.wcs.wcs
+    same_lin = (np.array_equal(wp.crval, ws.crval) and np.array_equal(wp.cdelt, ws.cdelt)
+                and np.array_equal(wp.get_pc(), ws.get_pc()) and list(wp.ctype) == list(ws.ctype))
+    if same_lin:
+        # same linear WCS: sub pixel (0,0) is parent pixel crpix_parent - crpix_sub, with no world round trip
+        dxy = np.asarray(wp.crpix, dtype=np.float64) - np.asarray(ws.crpix, dtype=np.float64)
+        x0, y0 = dxy[:1], dxy[1:2]
+        gtol = 1e-9 * (1.0 + float(np.max(np.abs(wp.crpix))))
+    else:
+        lon, lat = _world(sub, np.array([0.0]), np.array([0.0]))
+        x0, y0 = parent.wcs.wcs_world2pix(lon, lat, 0)
+        # world<->pixel round trip loses ~eps*360 deg absolute (longitude wrap) on each axis:
+        # eps*360/(finest absolute axis scale in deg) pixels
+        fine = min(min(abs(m.scale.axis1.to_value(u.deg / u.pix)), abs(m.scale.axis2.to_value(u.deg / u.pix)))
+                   for m in (parent, sub))
+        gtol = 1e-6 + _C * _EPS * 360.0 / fine
     if not (np.all(np.isfinite(x0)) and np.all(np.isfinite(y0))):
         return
     ix, iy = int(np.rint(x0[0])), int(np.rint(y0[0]))
-    # world<->pixel round trip loses ~eps*180 deg absolute, i.e. eps*180/scale_deg pixels
-    gtol = 1e-6 + _C * _EPS * 180.0 / min(_scale_deg(parent), _scale_deg(sub))
-    grid = abs(x0[0] - ix) > gtol or abs(y0[0] - iy) > gtol
+    # a round trip that cannot resolve a quarter pixel carries no information about the grid
+    resolvable = gtol <= 0.25
+    grid = resolvable and (abs(x0[0] - ix) > gtol or abs(y0[0] - iy) > gtol)
     ps = np.array([parent.scale.axis1.to_value(u.arcsec / u.pix), parent.scale.axis2.to_value(u.arcsec / u.pix)])
     ss = np.array([sub.scale.axis1.to_value(u.arcsec / u.pix), sub.scale.axis2.to_value(u.arcsec / u.pix)])
     scale_bad = np.any(np.abs(ps - ss) > 1e-12 * np.abs(ps))
     data_bad = False
     py, px = parent.data.shape
-    if 0 <= ix and 0 <= iy and ix + nx <= px and iy + ny <= py:
+    if resolvable and 0 <= ix and 0 <= iy and ix + nx <= px and iy + ny <= py:
         data_bad = not np.array_equal(sub.data, parent.data[iy:iy + ny, ix:ix + nx], equal_nan=sub.data.dtype.kind in "fc")
     trigger_if(grid or scale_bad or data_bad, "SP-MAP-005")
 

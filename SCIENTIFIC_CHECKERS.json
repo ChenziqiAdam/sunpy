@@ -388,7 +388,7 @@
       "symbol": "GenericMap.rotate"
     },
     {
-      "alarm": "non-integer offset `> 1e-6 + C*eps*180 deg / (absolute pixel scale in deg)` (world-to-pixel round-trip conditioning), scale change `> 1e-12` relative, or data mismatch",
+      "alarm": "non-integer offset (parent and submap with the same CRVAL, CDELT, PC and CTYPE: offset `crpix_parent - crpix_sub` beyond `1e-9*(1+max|crpix|)`; otherwise the world-to-pixel round trip beyond `1e-6 + C*eps*360 deg / (finest absolute pixel scale in deg)`, skipped when that tolerance exceeds 0.25 pixel), scale change `> 1e-12` relative, or data mismatch",
       "family": "map_submap_grid",
       "id": "SP-MAP-005",
       "invariant": "the submap's pixel `(0,0)` corresponds to an integer pixel `(x0,y0)` of the parent, the scale is unchanged, and the data equal `parent[y0:y0+ny, x0:x0+nx]`",
