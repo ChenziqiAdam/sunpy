@@ -483,10 +483,19 @@ def check_limb(limb, observer, rsun):
     x = np.cos(lat) * np.cos(lon)
     yz = np.hypot(np.cos(lat) * np.sin(lon), np.sin(lat))
     alpha = np.arctan2(yz, x)
-    theta_l = float(np.arcsin((rsun / observer.radius).to_value(u.one)))
-    # the limb is built from observer.radius and rsun: their unit round-off (float32 metadata) enters theta_l relatively
+    # reference in float64 from the exact (possibly float32) inputs; arctan2 form is accurate at grazing (D -> R)
+    r64 = float(np.float64(rsun.to_value(u.m)))
+    d64 = float(np.float64(observer.radius.to_value(u.m)))
+    if not (d64 > r64 > 0):
+        return
+    x = r64 / d64
+    theta_l = float(np.arctan2(r64, np.sqrt((d64 - r64) * (d64 + r64))))
+    # the limb is built from observer.radius and rsun: unit round-off eps_in in R/D moves theta_l by
+    # eps_in * x / sqrt(1 - x^2) (conditioning of arcsin; diverges as the observer approaches the photosphere)
     eps = _eps_of(observer.radius, rsun)
-    trigger_if(np.any(np.abs(alpha - theta_l) > max(1e-9, _C * eps) * theta_l + _C * _EPS), "SP-FRM-005")
+    cond = x / np.sqrt((1.0 - x) * (1.0 + x))
+    tol = max(1e-9, _C * eps) * theta_l + 4.0 * eps * cond + _C * _EPS
+    trigger_if(np.any(np.abs(alpha - theta_l) > tol), "SP-FRM-005")
 
 
 @_guarded
@@ -809,8 +818,17 @@ def _disk_pixels_ok(smap, min_radius_pixels=0.0):
         # pixel step: the longest lattice vector of the full linear map (PC scaled by CDELT), not CDELT alone
         pc = np.asarray(smap.rotation_matrix, dtype=np.float64)
         cd = np.array([smap.scale.axis1.to_value(u.deg / u.pix), smap.scale.axis2.to_value(u.deg / u.pix)])
-        step = float(np.max(np.hypot(pc[0, :] * cd[0], pc[1, :] * cd[1])))
-        if solar_angular_radius(smap.coordinate_frame).to_value(u.deg) < min_radius_pixels * max(sc, step):
+        lat = np.stack([pc[0, :] * cd[0], pc[1, :] * cd[1]])  # columns = lattice vectors a_j
+        lens = np.hypot(lat[0], lat[1])
+        step = float(np.max(lens))
+        rad = solar_angular_radius(smap.coordinate_frame).to_value(u.deg)
+        if rad < min_radius_pixels * max(sc, step):
+            return False
+        # skewed lattice: between two edge samples |a_j| apart the limb bulges by |a_j|^2 / (8 R); it must stay
+        # within half the perpendicular row spacing h_j = |det| / |a_j| or an interior row can see a sliver the
+        # edge samples straddle (unskewed square pixels: R >= |a|/4, already implied by the 2-step rule)
+        det = abs(float(np.linalg.det(lat)))
+        if det == 0.0 or np.any(rad < lens ** 3 / (4.0 * det)):
             return False
     return True
 

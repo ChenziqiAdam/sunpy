@@ -268,7 +268,7 @@
       "symbol": "get_heliocentric_angle"
     },
     {
-      "alarm": "any point's angular distance (via `atan2` of the HPC Cartesian vector, no cancellation) differs by `> max(1e-9, C*eps_in) theta + C*eps`, `eps_in` the largest unit round-off of observer radius and `rsun`",
+      "alarm": "any point's angular distance (via `atan2` of the HPC Cartesian vector, no cancellation) differs from the float64 reference `theta = atan2(rsun, sqrt(D^2 - rsun^2))` by `> max(1e-9, C*eps_in) theta + 4 eps_in x/sqrt(1-x^2) + C*eps`, `x = rsun/D`, `eps_in` the largest unit round-off of observer radius and `rsun` (the second term is the conditioning of `arcsin` near grazing)",
       "family": "limb_angular_radius",
       "id": "SP-FRM-005",
       "invariant": "every limb point seen from the observer has angular distance `arcsin(rsun/D)` from the disk centre",
@@ -429,7 +429,7 @@
       "id": "SP-MAP-008",
       "invariant": "when the edge test says all off disk, no pixel centre is on the disk",
       "observation_point": "return of `is_all_off_disk`",
-      "precondition": "as MAP-007, and disk angular radius `>= 2` pixel steps, a step being the longest lattice vector of the full pixel-to-sky linear map (`PC` scaled by `CDELT`)",
+      "precondition": "as MAP-007, and disk angular radius `>= 2` pixel steps, a step being the longest lattice vector `a_j` of the full pixel-to-sky linear map (`PC` scaled by `CDELT`), and `R >= |a_j|^3 / (4 |det|)` for each lattice vector (the limb sagitta between two edge samples stays below half the row spacing, which bounds lattice skew)",
       "rationale": "shortcut vs exhaustive cross-check.",
       "scientific_quantity": "disk-coverage class",
       "source": "sunpy/map/maputils.py",
