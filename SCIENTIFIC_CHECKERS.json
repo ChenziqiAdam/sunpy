@@ -256,7 +256,7 @@
       "symbol": "hpc_to_hpc"
     },
     {
-      "alarm": "relative difference `> 1e-8` of `sin(theta)` (position evaluated in float64)",
+      "alarm": "difference of `sin(theta)` exceeds `1e-8` relative plus the conditioning allowance `64 eps max(D, r) / |p - o|` (`eps` of the coarsest input dtype; position evaluated in float64)",
       "family": "heliocentric_angle_sine_rule",
       "id": "SP-FRM-004",
       "invariant": "`sin(theta) = (D/r) sin(alpha)`, where `alpha` is the angle at the observer between the disk centre and the point (triangle observer-Sun centre-point)",

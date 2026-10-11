@@ -463,7 +463,11 @@ def check_helio_angle(coord, angle):
     rhs = big_d / r * np.sin(alpha)
     lhs = np.sin(angle.to_value(u.rad))
     ok = np.isfinite(rhs) & np.isfinite(lhs) & (r > 0)
-    trigger_if(np.any(ok & (np.abs(lhs - rhs) > 1e-8 * np.abs(rhs) + 1e-12)), "SP-FRM-004")
+    # theta is an angle between O(max(D, r)) vectors that differ by |p - o|: the inputs carry eps*max(D, r)
+    # absolute rounding, so theta (and alpha) are only defined to C eps max(D, r) / |p - o| radians
+    eps_in = _eps_of(xyz, rad)
+    cond = np.maximum(big_d, r) / np.maximum(np.linalg.norm(to_pt, axis=0), np.finfo(np.float64).tiny)
+    trigger_if(np.any(ok & (np.abs(lhs - rhs) > 1e-8 * np.abs(rhs) + 1e-12 + _C * eps_in * cond)), "SP-FRM-004")
 
 
 @_guarded
