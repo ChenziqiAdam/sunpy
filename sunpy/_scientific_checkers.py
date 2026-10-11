@@ -432,7 +432,14 @@ def check_observer_invariance(from_coo, to_frame, out):
     scale = np.maximum(np.linalg.norm(a, axis=0), np.linalg.norm(b, axis=0))
     for obs in (from_coo.observer, to_frame.observer):
         scale = np.maximum(scale, np.max(obs.radius.to_value(u.m)))
-    trigger_if(np.any(np.linalg.norm(a - b, axis=0) > 1e-3 + 1e-12 * scale), "SP-FRM-003")
+    # float32 observer lon/lat build float32 HCC<->HGS rotations, applied to the Sun-centred point: C eps |p|;
+    # float32 radii or coordinate components round the O(L) translation: C eps L
+    obs = (from_coo.observer, to_frame.observer)
+    eps_ang = _eps_of(*[getattr(o, c, None) for o in obs for c in ("lon", "lat")])
+    eps_len = _eps_of(*[getattr(o, "radius", None) for o in obs], *[getattr(from_coo.data, c) for c in from_coo.data.components])
+    pt = np.maximum(np.linalg.norm(a, axis=0), np.linalg.norm(b, axis=0))
+    tol = 1e-3 + max(1e-12, _C * eps_len) * scale + (_C * eps_ang * pt if eps_ang > _EPS else 0.0)
+    trigger_if(np.any(np.linalg.norm(a - b, axis=0) > tol), "SP-FRM-003")
 
 
 @_guarded
@@ -555,14 +562,24 @@ def check_screen_iteration(screen, coord, distance, screen_frame):
 
     coords = np.atleast_1d(coord)
     dists = distance.reshape(-1) if distance.ndim else distance.reshape(1)
-    fac = np.exp(np.linspace(np.log(0.05), np.log(20.0), 241))  # 0.05-20 x the returned distance, ~2.5 % steps
-    for i in np.nonzero(np.atleast_1d(bad).reshape(-1))[0]:
+    # The library refines the static-screen distance locally (secant, seeded near it). Count an element only if
+    # its distance is positive (a point in front of the observer) and the fixed point is locally well posed:
+    # exactly one genuine root (sign change that bisects to |delta|/d < 1e-6, not a pole) in 0.8-1.25 x the
+    # returned distance, on 0.05 % steps. Several roots there (multi-turn sheared rotation) or only a far root
+    # (another branch) are not solver failures.
+    fac = np.exp(np.linspace(np.log(0.8), np.log(1.25), 893))
+    bad_flat = np.atleast_1d(bad).reshape(-1)
+    for i in np.nonzero(bad_flat)[0]:
         ci, di = coords.reshape(-1)[i], dists[i]
+        if not float(di.to_value(u.m)) > 0:
+            continue
         vals = delta_of(ci, di * fac)
         ok = np.isfinite(vals[:-1]) & np.isfinite(vals[1:]) & (vals[:-1] * vals[1:] < 0)
+        nroots = 0
         for j in np.nonzero(ok)[0]:
             lo, hi, flo = float(fac[j]), float(fac[j + 1]), vals[j]
-            for _ in range(60):  # bisect; a pole (jump) keeps a large |delta|, a root drives it to zero
+            fm, mid = flo, lo
+            for _ in range(60):
                 mid = 0.5 * (lo + hi)
                 fm = delta_of(ci, di * mid)[0]
                 if not np.isfinite(fm):
@@ -571,10 +588,11 @@ def check_screen_iteration(screen, coord, distance, screen_frame):
                     lo, flo = mid, fm
                 else:
                     hi = mid
-            else:
-                if abs(fm) / float((di * mid).to_value(u.m)) < 1e-6:
-                    trigger_if(True, "SP-SCR-002")
-                    return
+            if np.isfinite(fm) and abs(fm) / float((di * mid).to_value(u.m)) < 1e-6:
+                nroots += 1
+        if nroots == 1:
+            trigger_if(True, "SP-SCR-002")
+            return
 
 
 # ======================================================== rotated coordinates
@@ -615,7 +633,9 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     fin = np.isfinite(d)
     # the longitude is conditioned as 1/cos(latitude): the rounding of the O(1 AU) transform is C eps rad there
     cos_lat = np.maximum(np.cos(hgs_old.lat.to_value(u.rad)), 1e-12)
-    tol = 1e-8 + np.rad2deg(1e3 * _EPS) / cos_lat
+    # float32 coordinate components or observer angles/radii: the frame rotations run at their unit round-off
+    eps_ang = _eps_of(coordinate.Tx, coordinate.Ty, old_obs.lon, old_obs.lat, new_observer.lon, new_observer.lat)
+    tol = 1e-8 + np.rad2deg(max(1e3 * _EPS, _C * eps_ang)) / cos_lat
     trigger_if(np.any(fin & (np.abs(d) > tol)), "SP-DRC-002")
 
     # 001: reversible (only when an explicit observer was supplied)
@@ -634,9 +654,12 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     # float32 coordinate components or observer radius enter the round trip at their own unit round-off,
     # relative to the angular offset itself (Tx, Ty in arcsec) and to the distances
     eps_in = _eps_of(coordinate.Tx, coordinate.Ty, ref.distance, old_obs.radius, new_observer.radius)
+    # float32 observer lon/lat: float32 Sun-centred rotations applied to the point (|p| = its heliocentric radius)
+    eps_o = _eps_of(old_obs.lon, old_obs.lat, new_observer.lon, new_observer.lat)
+    pr = float(np.nanmax(np.abs(hgs_old.radius.to_value(u.m)))) if eps_o > _EPS else 0.0
     off = float(np.nanmax(np.maximum(np.abs(ref.Tx.to_value(u.arcsec)), np.abs(ref.Ty.to_value(u.arcsec)))))
-    ang = 1e-6 + np.rad2deg(_C * eps_in * big_l / dm) * 3600.0 + _C * eps_in * off
-    bad = (np.abs(dtx) > ang) | (np.abs(dty) > ang) | (dd > 1e-12 * dm + _C * eps_in * big_l)
+    ang = 1e-6 + np.rad2deg(_C * eps_in * big_l / dm) * 3600.0 + _C * eps_in * off + np.rad2deg(_C * eps_o * pr / dm) * 3600.0
+    bad = (np.abs(dtx) > ang) | (np.abs(dty) > ang) | (dd > 1e-12 * dm + _C * eps_in * big_l + _C * eps_o * pr)
     trigger_if(np.any(ok & bad), "SP-DRC-001")
 
 
@@ -644,7 +667,7 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
 def _scale_deg(smap):
     import astropy.units as u
 
-    return float(max(smap.scale.axis1.to_value(u.deg / u.pix), smap.scale.axis2.to_value(u.deg / u.pix)))
+    return float(max(abs(smap.scale.axis1.to_value(u.deg / u.pix)), abs(smap.scale.axis2.to_value(u.deg / u.pix))))
 
 
 def _corner_pix(nx, ny):

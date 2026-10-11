@@ -244,7 +244,7 @@
       "symbol": "differential_rotation"
     },
     {
-      "alarm": "HGS Cartesian difference `> 1e-3 m + 1e-12 L`, `L` = the largest of the point distances and the two observer distances (revised twice, see revision log)",
+      "alarm": "HGS Cartesian difference `> 1e-3 m + 1e-12 L + 64 eps_len L`, plus `64 eps_ang |p|` when the observer longitude/latitude are lower precision than float64; `L` = the largest of the point distances and the two observer distances, `|p|` the Sun-centred point radius, `eps_len` the largest epsilon among the observer radii and coordinate components, `eps_ang` that of the observer lon/lat",
       "family": "hpc_observer_invariance",
       "id": "SP-FRM-003",
       "invariant": "after `Helioprojective -> Helioprojective` with a different observer, both coordinates are the same Sun-centred point (compare in HGS)",
@@ -304,7 +304,7 @@
       "symbol": "SphericalScreen.calculate_distance"
     },
     {
-      "alarm": "residual `|delta/distance| > 1e-9` for an element for which the residual changes sign continuously (a root, not a pole) on a log grid 0.05-20 x the returned distance, i.e. a root exists that the solver failed to reach",
+      "alarm": "for an element with a positive returned distance, residual `|delta/distance| > 1e-9` and exactly one genuine root (residual changes sign continuously, a root and not a pole) in 0.8-1.25 x the returned distance on 0.05 % steps, i.e. a nearby root that the local solve failed to reach; elements with no nearby root or several nearby roots (ill-posed fixed point) are not alarmed",
       "family": "screen_iteration_convergence",
       "id": "SP-SCR-002",
       "invariant": "at the returned distance the 3D->2D->3D shift is below the solver tolerance (documented 1e-11, accepted 1e-9)",
@@ -316,7 +316,7 @@
       "symbol": "BaseScreen._iterate_calculate_distance"
     },
     {
-      "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` plus a round-off allowance (`64 eps` relative to the angular offset and to `L/d`, `eps` the largest floating epsilon among the input components and observer radii), or `|d distance| > 1e-12 D` plus `64 eps L`",
+      "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` plus a round-off allowance (`64 eps` relative to the angular offset and to `L/d`, `eps` the largest floating epsilon among the input components and observer radii; and `64 eps_o |p|/d` for observer lon/lat of epsilon `eps_o`, `|p|` the heliocentric radius of the point), or `|d distance| > 1e-12 D` plus `64 eps L` and `64 eps_o |p|`",
       "family": "solar_rotate_reversible",
       "id": "SP-DRC-001",
       "invariant": "rotating to a new observer/time and back to the original observer/time recovers the 3-D input",
@@ -328,7 +328,7 @@
       "symbol": "solar_rotate_coordinate"
     },
     {
-      "alarm": "wrapped change of the longitude of the HCRS Cartesian vector in the de-tilted frame (axis = solar north) differs from `drot` by `> 1e-8 deg`",
+      "alarm": "wrapped change of the longitude of the HCRS Cartesian vector in the de-tilted frame (axis = solar north) differs from `drot` by `> 1e-8 deg + max(1e3 eps64, 64 eps_in)/cos(lat)` (`eps_in` the largest epsilon among the coordinate components and observer angles)",
       "family": "solar_rotate_prograde",
       "id": "SP-DRC-002",
       "invariant": "about the Sun's rotation axis, in an inertial (ICRS-oriented, Sun-centred) frame, a point's longitude advances by `differential_rotation(dt, lat)`",
@@ -388,7 +388,7 @@
       "symbol": "GenericMap.rotate"
     },
     {
-      "alarm": "non-integer offset `> 1e-6 + C*eps*180 deg / (pixel scale in deg)` (world-to-pixel round-trip conditioning), scale change `> 1e-12` relative, or data mismatch",
+      "alarm": "non-integer offset `> 1e-6 + C*eps*180 deg / (absolute pixel scale in deg)` (world-to-pixel round-trip conditioning), scale change `> 1e-12` relative, or data mismatch",
       "family": "map_submap_grid",
       "id": "SP-MAP-005",
       "invariant": "the submap's pixel `(0,0)` corresponds to an integer pixel `(x0,y0)` of the parent, the scale is unchanged, and the data equal `parent[y0:y0+ny, x0:x0+nx]`",
