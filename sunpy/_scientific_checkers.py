@@ -113,6 +113,19 @@ def _eps_of(*quantities):
     return eps
 
 
+def _narrow_eps(*quantities, ops=1.0):
+    """Unified narrow-dtype policy (2026-10-20): unit round-off of the narrowest floating input (``_eps_of``;
+    float32/float16 are checked at their own resolution, never skipped), or None when an integer input can wrap in
+    the library's own arithmetic (max|x| * ops > np.iinfo, ``ops`` the growth of the largest intermediate over
+    max|x|): wrap-around is a dtype fact, not a law violation, so callers skip on None."""
+    for q in quantities:
+        a = np.asarray(getattr(q, "value", q))
+        if a.dtype.kind in "iu" and a.size:
+            if float(np.max(np.abs(a.astype(np.float64)))) * max(float(ops), 1.0) > float(np.iinfo(a.dtype).max):
+                return None
+    return _eps_of(*quantities)
+
+
 def _wrap180(x_deg):
     return (np.asarray(x_deg, dtype=np.float64) + 180.0) % 360.0 - 180.0
 
@@ -261,7 +274,21 @@ def check_light_time(body, observer_icrs, light_travel_time, emitted_time, obsti
 
 @_guarded
 def check_eclipse(s, m, d, fraction):
-    """SP-EPH-010: spherical-cap overlap fraction equals the planar two-disc overlap."""
+    """SP-EPH-010: spherical-cap overlap fraction equals the planar two-disc overlap.
+
+    Repair 2026-10-20 (run-12 Codex, REGIME): ``eclipse_amount`` recovers the cap-overlap angles through
+    arccos((cos - cos cos) / (sin sin)). Each numerator is a difference of O(1) cosine products, so it carries
+    about 3 eps absolute rounding against an O(theta^2) value, and arccos amplifies an argument error dx to
+    dx / sqrt(2 (1 - |x|)), i.e. sqrt(dx / 2) at a contact. For an observer 1000 AU away (Sun 4.7e-6 rad,
+    Moon 1.2e-8 rad) this gives a fraction of 1.0 against a true 3e-6: the formula cannot resolve the
+    geometry at all. The tolerance adds that propagated rounding bound, per element, to the curvature term:
+    it stays at 2.0e-3 (+ <= 2e-4) for Earth, near-Earth and cislunar observers, about 4e-3 for a Mars-like
+    observer, and exceeds 1 (unresolvable, never fires) once the observer is ~10 AU away. ``eps`` is that of
+    the narrowest floating input (the formula runs in the inputs' dtype).
+    """
+    eps = _narrow_eps(s, m, d)
+    if eps is None:
+        return
     s, m, d, frac = (np.asarray(a, dtype=np.float64) for a in np.broadcast_arrays(s, m, d, fraction))
     ok = np.isfinite(s) & np.isfinite(m) & np.isfinite(d) & np.isfinite(frac)
     ok &= (s < 0.02) & (m < 0.02) & (s > 0) & (m > 0)
@@ -276,8 +303,21 @@ def check_eclipse(s, m, d, fraction):
     lens = s**2 * np.arccos(a1) + m**2 * np.arccos(a2) - 0.5 * np.sqrt(root)
     planar = np.where(d >= s + m, 0.0, np.where(d <= np.abs(s - m), np.minimum(m, s) ** 2 * np.pi, lens))
     planar = planar / (np.pi * s**2)
+    # propagated rounding of the production cap formula (see docstring); 0 outside the partial band, where the
+    # library uses the closed-form cap-area ratio (relative rounding eps / (1 - cos s) of the Sun's cap)
+    cs, ss, cm, sm, cd, sd = np.cos(s), np.sin(s), np.cos(m), np.sin(m), np.cos(d), np.sin(d)
+    area_s = 2.0 * np.pi * (1.0 - cs)
+    partial = (d < s + m) & (d > np.abs(s - m)) & (sd > 0)
+    sdd = np.where(partial, sd, 1.0)
+    dth = np.zeros_like(s)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        for num, den, w in ((cd - cs * cm, ss * sm, 1.0), (cm - cd * cs, sdd * ss, cs), (cs - cd * cm, sdd * sm, cm)):
+            dx = 3.0 * eps / den
+            dth = dth + w * dx / np.sqrt(2.0 * np.maximum(1.0 - np.abs(num / den), dx))
+        rounding = np.where(partial, 2.0 * dth / area_s, 0.0) + 2.0 * eps / (1.0 - cs)
+    rounding = np.where(np.isfinite(rounding), rounding, np.inf)
     # curvature correction is O(theta^2) ~ 1e-4; margin 20x
-    trigger_if(np.any(np.abs(planar - frac) > 2e-3), "SP-EPH-010")
+    trigger_if(np.any(np.abs(planar - frac) > 2e-3 + rounding), "SP-EPH-010")
 
 
 # ================================================================= Carrington
@@ -483,16 +523,20 @@ def check_limb(limb, observer, rsun):
     x = np.cos(lat) * np.cos(lon)
     yz = np.hypot(np.cos(lat) * np.sin(lon), np.sin(lat))
     alpha = np.arctan2(yz, x)
-    # reference in float64 from the exact (possibly float32) inputs; arctan2 form is accurate at grazing (D -> R)
-    r64 = float(np.float64(rsun.to_value(u.m)))
-    d64 = float(np.float64(observer.radius.to_value(u.m)))
-    if not (d64 > r64 > 0):
+    # reference in float64 from the exact (possibly float32) inputs; arctan2 form is accurate at grazing (D -> R).
+    # Cast before the unit conversion (repair 2026-10-20, narrow-dtype policy): a float16 observer radius of 1 AU
+    # overflowed to inf when converted to metres in float16, which fired on a correct limb.
+    r64 = float(u.Quantity(rsun, dtype=np.float64).to_value(u.m))
+    d64 = float(u.Quantity(observer.radius, dtype=np.float64).to_value(u.m))
+    if not (np.isfinite(d64) and d64 > r64 > 0):
         return
     x = r64 / d64
     theta_l = float(np.arctan2(r64, np.sqrt((d64 - r64) * (d64 + r64))))
     # the limb is built from observer.radius and rsun: unit round-off eps_in in R/D moves theta_l by
     # eps_in * x / sqrt(1 - x^2) (conditioning of arcsin; diverges as the observer approaches the photosphere)
-    eps = _eps_of(observer.radius, rsun)
+    eps = _narrow_eps(observer.radius, rsun)
+    if eps is None:
+        return
     cond = x / np.sqrt((1.0 - x) * (1.0 + x))
     tol = max(1e-9, _C * eps) * theta_l + 4.0 * eps * cond + _C * _EPS
     trigger_if(np.any(np.abs(alpha - theta_l) > tol), "SP-FRM-005")

@@ -112,7 +112,7 @@
       "symbol": "get_body_heliographic_stonyhurst"
     },
     {
-      "alarm": "absolute fraction difference `> 2e-3`",
+      "alarm": "absolute fraction difference `> 2e-3 + R`, `R` the propagated float rounding of the production spherical-cap formula: in the partial band `2 sum_i w_i dx_i / sqrt(2 max(1 - |x_i|, dx_i)) / area_s`, `x_i` the three arccos arguments, `dx_i = 3 eps / (their sine-product denominator)`, `w = (1, cos s, cos m)`, `area_s = 2 pi (1 - cos s)`; plus `2 eps / (1 - cos s)`; `eps` the largest unit round-off of `s`, `m`, `d`. `R` stays below 2.5e-4 for Earth, near-Earth and cislunar observers, about 4e-3 for a Mars-like observer, and exceeds 1 (never fires) for an observer ~10 AU or more away, where the formula cannot resolve the Moon",
       "family": "eclipse_overlap_area",
       "id": "SP-EPH-010",
       "invariant": "the obscured fraction of the spherical-cap overlap equals the planar circle-lens-area fraction to within the curvature correction `O(theta^2)` (about 1e-4)",
@@ -273,7 +273,7 @@
       "id": "SP-FRM-005",
       "invariant": "every limb point seen from the observer has angular distance `arcsin(rsun/D)` from the disk centre",
       "observation_point": "return of `get_limb_coordinates`",
-      "precondition": "`D > rsun`",
+      "precondition": "`D > rsun`, both converted to metres in float64 (the conversion is not done in a narrower input dtype, where 1 AU overflows float16)",
       "rationale": "ties the limb construction to the angular-radius law.",
       "scientific_quantity": "solar limb",
       "source": "sunpy/coordinates/utils.py",
