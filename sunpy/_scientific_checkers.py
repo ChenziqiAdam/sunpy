@@ -693,6 +693,15 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
     # float32 coordinate components or observer angles/radii: the frame rotations run at their unit round-off
     eps_ang = _eps_of(coordinate.Tx, coordinate.Ty, old_obs.lon, old_obs.lat, new_observer.lon, new_observer.lat)
     tol = 1e-8 + np.rad2deg(max(1e3 * _EPS, _C * eps_ang)) / cos_lat
+    # positions are O(L) floats, L the largest observer distance involved (as in 001 below): the point's
+    # position is rounded at C eps L, an angle C eps L / r seen from the Sun centre at its heliocentric
+    # radius r (R13: observers at 2e5 AU give |d| = 4.8e-8 deg on a 1 R_sun point, linear in L)
+    ref = coordinate.make_3d()
+    dm = np.abs(ref.distance.to_value(u.m))
+    big_l = float(np.nanmax([np.nanmax(old_obs.radius.to_value(u.m)), np.nanmax(new_observer.radius.to_value(u.m)), np.nanmax(dm)]))
+    eps_l = _eps_of(ref.distance, old_obs.radius, new_observer.radius)
+    r_pt = np.maximum(np.abs(hgs_old.radius.to_value(u.m)), np.finfo(np.float64).tiny)
+    tol = tol + np.rad2deg(_C * eps_l * big_l / r_pt) / cos_lat
     trigger_if(np.any(fin & (np.abs(d) > tol)), "SP-DRC-002")
 
     # 001: reversible (only when an explicit observer was supplied)
@@ -700,14 +709,11 @@ def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, 
         return
     kwargs = {k: v for k, v in diff_rot_kwargs.items() if k != "frame_time"}
     back = solar_rotate_coordinate(result, observer=old_obs, **kwargs)
-    ref = coordinate.make_3d()
     dtx = (back.Tx - ref.Tx).to_value(u.arcsec)
     dty = (back.Ty - ref.Ty).to_value(u.arcsec)
     dd = np.abs((back.distance - ref.distance).to_value(u.m))
     ok = np.isfinite(dtx) & np.isfinite(dty) & np.isfinite(dd)
-    # positions are O(L) floats, L the largest observer distance involved: rounding C eps L, seen from distance d
-    dm = np.abs(ref.distance.to_value(u.m))
-    big_l = float(np.nanmax([np.nanmax(old_obs.radius.to_value(u.m)), np.nanmax(new_observer.radius.to_value(u.m)), np.nanmax(dm)]))
+    # positions are O(L) floats (big_l, above): rounding C eps L, seen from distance d
     # float32 coordinate components or observer radius enter the round trip at their own unit round-off,
     # relative to the angular offset itself (Tx, Ty in arcsec) and to the distances
     eps_in = _eps_of(coordinate.Tx, coordinate.Ty, ref.distance, old_obs.radius, new_observer.radius)
@@ -736,6 +742,17 @@ def _world(smap, x, y):
     return np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
 
 
+def _crpix_tol(*maps):
+    """R13 narrow-dtype policy for CRPIX: a float32/float16 CRPIX meta value is carried through
+    submap/resample/superpixel at its own precision (reference_pixel = crpix - 1, rescaled or shifted, then
+    + 1: about four roundings of eps*|crpix|/2 each across the two maps), so the derived grid is resolved only
+    to 4*eps*max|crpix| pixels (float32 2**25: spacing 4). None when an integer CRPIX can wrap."""
+    eps = _narrow_eps(*[m.meta.get(f"crpix{i}", 0.0) for m in maps for i in (1, 2)])
+    if eps is None:
+        return None
+    return 4.0 * eps * float(max(np.max(np.abs(m.wcs.wcs.crpix)) for m in maps))
+
+
 def _max_shift_pixels(smap_old, lon_o, lat_o, lon_n, lat_n):
     """Largest difference of two sets of world coordinates, in old pixel scales."""
     dlon = _wrap180(lon_n - lon_o)
@@ -753,7 +770,10 @@ def check_resample_footprint(old, new):
     ln, lb = _world(new, *_corner_pix(mx, my))
     if not (np.all(np.isfinite(lo)) and np.all(np.isfinite(ln))):
         return
-    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6, "SP-MAP-001")
+    ctol = _crpix_tol(old, new)  # narrow CRPIX, in old pixels (new-pixel error x binning factor)
+    if ctol is None:
+        return
+    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6 + ctol, "SP-MAP-001")
 
 
 @_guarded
@@ -768,7 +788,10 @@ def check_superpixel_footprint(old, new, dimensions, offset):
     ln, lb = _world(new, ex, ey)
     if not (np.all(np.isfinite(lo)) and np.all(np.isfinite(ln))):
         return
-    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6, "SP-MAP-002")
+    ctol = _crpix_tol(old, new)  # narrow CRPIX, in old pixels (new-pixel error x binning factor)
+    if ctol is None:
+        return
+    trigger_if(_max_shift_pixels(old, lo, la, ln, lb) > 1e-6 + ctol, "SP-MAP-002")
 
 
 @_guarded
@@ -844,6 +867,12 @@ def check_submap(parent, sub):
         fine = min(min(abs(m.scale.axis1.to_value(u.deg / u.pix)), abs(m.scale.axis2.to_value(u.deg / u.pix)))
                    for m in (parent, sub))
         gtol = 1e-6 + _C * _EPS * 360.0 / fine
+    # R13: float32/float16 CRPIX resolves the grid only to 4*eps*max|crpix| (float32 2**25, spacing 4,
+    # shifts the cutout WCS by one pixel: unresolvable, not a grid defect)
+    ctol = _crpix_tol(parent, sub)
+    if ctol is None:
+        return  # P: integer CRPIX may wrap
+    gtol += ctol
     if not (np.all(np.isfinite(x0)) and np.all(np.isfinite(y0))):
         return
     ix, iy = int(np.rint(x0[0])), int(np.rint(y0[0]))

@@ -328,7 +328,7 @@
       "symbol": "solar_rotate_coordinate"
     },
     {
-      "alarm": "wrapped change of the longitude of the HCRS Cartesian vector in the de-tilted frame (axis = solar north) differs from `drot` by `> 1e-8 deg + max(1e3 eps64, 64 eps_in)/cos(lat)` (`eps_in` the largest epsilon among the coordinate components and observer angles)",
+      "alarm": "wrapped change of the longitude of the HCRS Cartesian vector in the de-tilted frame (axis = solar north) differs from `drot` by `> 1e-8 deg + max(1e3 eps64, 64 eps_in)/cos(lat)` (`eps_in` the largest epsilon among the coordinate components and observer angles) plus `64 eps_L L/r / cos(lat)` (rad; `L` the largest observer or point distance, `r` the heliocentric radius of the point, `eps_L` the largest epsilon among the distances and observer radii)",
       "family": "solar_rotate_prograde",
       "id": "SP-DRC-002",
       "invariant": "about the Sun's rotation axis, in an inertial (ICRS-oriented, Sun-centred) frame, a point's longitude advances by `differential_rotation(dt, lat)`",
@@ -340,7 +340,7 @@
       "symbol": "solar_rotate_coordinate"
     },
     {
-      "alarm": "any corner moves by `> 1e-6` old pixel scales",
+      "alarm": "any corner moves by `> 1e-6` old pixel scales plus `4*eps_crpix*max|crpix|` (`eps_crpix` the epsilon of the CRPIX meta values: a float32/float16 CRPIX is carried through at its own precision)",
       "family": "map_resample_footprint",
       "id": "SP-MAP-001",
       "invariant": "the world coordinates of the four outer corners of the pixel grid (edges at `-0.5` and `n-0.5`) are unchanged by `resample`",
@@ -352,7 +352,7 @@
       "symbol": "GenericMap.resample"
     },
     {
-      "alarm": "any corner differs by `> 1e-6` old pixel scales",
+      "alarm": "any corner differs by `> 1e-6` old pixel scales plus `4*eps_crpix*max|crpix|` (`eps_crpix` the epsilon of the CRPIX meta values: a float32/float16 CRPIX is carried through at its own precision)",
       "family": "map_superpixel_footprint",
       "id": "SP-MAP-002",
       "invariant": "the outer corners of the binned grid coincide with the old pixel-edge corners at `offset - 0.5 + dims*(edge + 0.5)`",
@@ -388,7 +388,7 @@
       "symbol": "GenericMap.rotate"
     },
     {
-      "alarm": "non-integer offset (parent and submap with the same CRVAL, CDELT, PC and CTYPE: offset `crpix_parent - crpix_sub` beyond `1e-9*(1+max|crpix|)`; otherwise the world-to-pixel round trip beyond `1e-6 + C*eps*360 deg / (finest absolute pixel scale in deg)`, skipped when that tolerance exceeds 0.25 pixel), scale change `> 1e-12` relative, or data mismatch",
+      "alarm": "non-integer offset (parent and submap with the same CRVAL, CDELT, PC and CTYPE: offset `crpix_parent - crpix_sub` beyond `1e-9*(1+max|crpix|)`; otherwise the world-to-pixel round trip beyond `1e-6 + C*eps*360 deg / (finest absolute pixel scale in deg)`; both plus `4*eps_crpix*max|crpix|`, `eps_crpix` the epsilon of the CRPIX meta values, since a float32/float16 CRPIX is carried through submap at its own precision; skipped when that tolerance exceeds 0.25 pixel), scale change `> 1e-12` relative, or data mismatch",
       "family": "map_submap_grid",
       "id": "SP-MAP-005",
       "invariant": "the submap's pixel `(0,0)` corresponds to an integer pixel `(x0,y0)` of the parent, the scale is unchanged, and the data equal `parent[y0:y0+ny, x0:x0+nx]`",
