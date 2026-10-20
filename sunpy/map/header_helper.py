@@ -130,7 +130,8 @@ def make_fitswcs_header(data,
 
     meta_dict = MetaDict(meta_wcs)
     if _sc.enabled():
-        _sc.check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape, meta_wcs)
+        _sc.check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape, meta_wcs,
+                              rotation_angle=rotation_angle)
     return meta_dict
 
 

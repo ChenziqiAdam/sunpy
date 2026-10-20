@@ -460,12 +460,12 @@
       "symbol": "solar_frame_to_wcs_mapping"
     },
     {
-      "alarm": "coordinate error `> 1e-9 + C eps 360 deg / scale` pixels, or step differs by `> 1e-9 + x^2/2 + C eps 360 deg / |scale|` relative (`x` = the step in radians; a zenithal pixel step of plane size `x` spans `atan(x)`; the last term is the rounding of two O(360 deg) coordinates differenced over one step)",
+      "alarm": "coordinate error `> 1e-9 + C eps 360 deg / scale` pixels, or step differs by `> 1e-9 + x^2/2 + C eps 360 deg / |scale|` relative (`x` = the step in radians; a zenithal pixel step of plane size `x` spans `atan(x)`; the last term is the rounding of two O(360 deg) coordinates differenced over one step). Float32/float16 scale, rotation angle, reference pixel or coordinate are checked at their own resolution (unified narrow-dtype policy, R15): the header holds them at that resolution, so the step tolerance adds `C eps(scale, rotation_angle)` relative and the coordinate tolerance `C eps_ref |crpix| + C eps_coord max(|lon|,|lat|) / scale` pixels",
       "family": "fits_header_reference",
       "id": "SP-WCS-002",
       "invariant": "evaluating the header's WCS at the zero-based reference pixel gives the input coordinate, and one pixel along an axis moves the coordinate by the requested scale",
       "observation_point": "return of `make_fitswcs_header`",
-      "precondition": "coordinate frame with lon/lat, `rotation_matrix` not given",
+      "precondition": "coordinate frame with lon/lat, `rotation_matrix` not given (an omitted `scale` is the documented default 1 arcsec/pix)",
       "rationale": "FITS 1-based vs 0-based pixel conventions and units.",
       "scientific_quantity": "FITS-WCS reference coordinate",
       "source": "sunpy/map/header_helper.py",

@@ -1010,7 +1010,7 @@ def check_frame_wcs(frame, wcs):
 
 
 @_guarded
-def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape, meta_wcs):
+def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape, meta_wcs, rotation_angle=None):
     """SP-WCS-002: the header places the reference coordinate at the reference pixel."""
     import astropy.units as u
     from astropy.io import fits
@@ -1020,6 +1020,10 @@ def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape
         return
     if reference_pixel is None:
         reference_pixel = u.Quantity([(shape[1] - 1) / 2.0 * u.pixel, (shape[0] - 1) / 2.0 * u.pixel])
+    if scale is None:
+        # R15: the documented default (1 arcsec/pix); `scale[0]` on None used to raise, skipping every
+        # default-scale header
+        scale = [1.0, 1.0] * u.arcsec / u.pixel
     hdr = fits.Header()
     for k, v in dict(meta_wcs).items():
         if isinstance(v, str | int | float | bool | np.floating | np.integer):
@@ -1046,14 +1050,35 @@ def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape
 
     step1 = sep(lon0, lat0, lon1, lat1)
     step2 = sep(lon0, lat0, lon2, lat2)
+    # R15 narrow-dtype policy: float32/float16 scale, reference pixel or coordinate values are stored in the
+    # header as given, and a FITS card (as every WCS reader parses it) holds them at their own resolution (the
+    # shortest decimal of a float32 value differs from it by up to eps/2 relative). The step then matches the
+    # requested scale only to eps_scale relative, and the reference coordinate is placed only to
+    # eps_ref * |crpix| pixels plus eps_crd * |lon|, |lat| in world units (float64 inputs: all three terms ~0)
+    # (a float32 rotation_angle likewise builds the PC matrix from float32 cos/sin: |cos^2 + sin^2 - 1| ~ eps32
+    # moves the step by eps32 relative although the stored PC values are float64; run 11, roll 15-60 deg: 1.4e-8)
+    # (np.deg2rad of an int8/int16 angle runs in float16/float32: the working dtype, not the input dtype, counts)
+    eps_scale = _eps_of(scale[0], scale[1])
+    if rotation_angle is not None:
+        work = np.result_type(np.asarray(getattr(rotation_angle, "value", rotation_angle)).dtype, np.float16)
+        eps_scale = max(eps_scale, float(np.finfo(work).eps) if work.kind == "f" else _EPS)
+    eps_ref = _eps_of(reference_pixel[0], reference_pixel[1])
+    eps_crd = _eps_of(sph.lon, sph.lat)
+    narrow_step = _C * eps_scale if eps_scale > _EPS else 0.0
+    narrow_px = (_C * eps_ref * (max(abs(rx), abs(ry)) + 1.0) if eps_ref > _EPS else 0.0) + (
+        _C * eps_crd * max(abs(float(clon)), abs(float(clat))) / max(abs(s1), abs(s2)) if eps_crd > _EPS else 0.0)
     # a zenithal (TAN) pixel step of plane size x spans atan(x), a relative O(x^2/3) projection term
     # plus the rounding of two O(360 deg) coordinates differenced over one step
-    tol1 = 1e-9 + np.deg2rad(abs(s1)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s1)
-    tol2 = 1e-9 + np.deg2rad(abs(s2)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s2)
+    tol1 = 1e-9 + np.deg2rad(abs(s1)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s1) + narrow_step
+    tol2 = 1e-9 + np.deg2rad(abs(s2)) ** 2 / 2 + _C * _EPS * 360.0 / abs(s2) + narrow_step
     # world coordinates are O(360 deg) floats: absolute rounding C eps 360 deg, expressed in pixels
-    coord_tol = 1e-9 + _C * _EPS * 360.0 / max(abs(s1), abs(s2))
+    coord_tol = 1e-9 + _C * _EPS * 360.0 / max(abs(s1), abs(s2)) + narrow_px
+    # R15: the production hook passes the raw meta dict, whose CTYPE keys come upper-case from
+    # WCS.to_header() (only cunit/crpix/... are lower-case); the former meta_wcs["ctype1"] raised KeyError there,
+    # so this checker never evaluated outside unit tests. Look the key up case-insensitively.
+    ctype1 = next(v for k, v in dict(meta_wcs).items() if str(k).lower() == "ctype1")
     # cdelt is the step in the native plane; it equals the sky step at the reference point only where the
     # projection has unit local scale there (zenithal, CAR, MER, CEA, SFL), not e.g. MOL, PAR, HPX, TSC, CSC, QSC
-    unit_scale = str(meta_wcs["ctype1"])[-3:].upper() in {"TAN", "SIN", "ARC", "STG", "ZEA", "CAR", "MER", "CEA", "SFL"}
+    unit_scale = str(ctype1)[-3:].upper() in {"TAN", "SIN", "ARC", "STG", "ZEA", "CAR", "MER", "CEA", "SFL"}
     bad = err > coord_tol or (unit_scale and (abs(step1 - abs(s1)) > tol1 * abs(s1) or abs(step2 - abs(s2)) > tol2 * abs(s2)))
     trigger_if(bad, "SP-WCS-002")
