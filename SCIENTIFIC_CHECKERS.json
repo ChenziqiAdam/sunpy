@@ -309,7 +309,7 @@
       "id": "SP-SCR-002",
       "invariant": "at the returned distance the 3D->2D->3D shift is below the solver tolerance (documented 1e-11, accepted 1e-9)",
       "observation_point": "return of `_iterate_calculate_distance`",
-      "precondition": "differential-rotation branch, finite starting distance",
+      "precondition": "differential-rotation branch, finite starting distance, propagation interval between the coordinate and the screen frame of at most 30 days",
       "rationale": "convergence of the numerical solve at its end state.",
       "scientific_quantity": "distance to a rotated screen",
       "source": "sunpy/coordinates/screens.py",

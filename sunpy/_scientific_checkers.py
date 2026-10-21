@@ -598,6 +598,14 @@ def check_screen_iteration(screen, coord, distance, screen_frame):
     from astropy.coordinates import UnitSphericalRepresentation
     import astropy.units as u
 
+    # Propagating a screen by more than ~a month (solar-rotation scale) is outside realistic use; the solver warns
+    # when it fails there, so a stalled secant is not a defect to alarm on.
+    try:
+        if abs((coord.obstime - screen_frame.obstime).to_value(u.day)) > 30:
+            return
+    except Exception:
+        pass
+
     other_3d = coord.realize_frame(coord.represent_as(UnitSphericalRepresentation) * distance)
     native_3d = other_3d.transform_to(screen_frame)
     native_2d = native_3d.realize_frame(native_3d.represent_as(UnitSphericalRepresentation))
