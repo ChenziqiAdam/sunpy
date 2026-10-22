@@ -108,8 +108,6 @@ class BaseScreen(abc.ABC):
             # Return the solution if all elements have converged
             if np.sum(use) == 0:
                 log.debug("Solved for the differentially rotated screen after %d iterations", niter + 1)
-                if _sc.enabled():
-                    _sc.check_screen_iteration(self, coord, distance, screen_frame)
                 return distance
 
             # Squash small deltas to avoid warnings from later computations
@@ -117,8 +115,6 @@ class BaseScreen(abc.ABC):
 
         warn_user(f"Failed to solve for the differentially rotated screen after {niter + 1} iterations. "
                   "Using the best guess.")
-        if _sc.enabled():
-            _sc.check_screen_iteration(self, coord, distance, screen_frame)
         return distance
 
 

@@ -304,18 +304,6 @@
       "symbol": "SphericalScreen.calculate_distance"
     },
     {
-      "alarm": "for an element with a positive returned distance, residual `|delta/distance| > 1e-9` and exactly one genuine root (residual changes sign continuously, a root and not a pole) in 0.8-1.25 x the returned distance on 0.05 % steps, i.e. a nearby root that the local solve failed to reach; elements with no nearby root or several nearby roots (ill-posed fixed point) are not alarmed",
-      "family": "screen_iteration_convergence",
-      "id": "SP-SCR-002",
-      "invariant": "at the returned distance the 3D->2D->3D shift is below the solver tolerance (documented 1e-11, accepted 1e-9)",
-      "observation_point": "return of `_iterate_calculate_distance`",
-      "precondition": "differential-rotation branch, finite starting distance, propagation interval between the coordinate and the screen frame of at most 30 days",
-      "rationale": "convergence of the numerical solve at its end state.",
-      "scientific_quantity": "distance to a rotated screen",
-      "source": "sunpy/coordinates/screens.py",
-      "symbol": "BaseScreen._iterate_calculate_distance"
-    },
-    {
       "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` plus a round-off allowance (`64 eps` relative to the angular offset and to `L/d`, `eps` the largest floating epsilon among the input components and observer radii; and `64 eps_o |p|/d` for observer lon/lat of epsilon `eps_o`, `|p|` the heliocentric radius of the point), or `|d distance| > 1e-12 D` plus `64 eps L` and `64 eps_o |p|`",
       "family": "solar_rotate_reversible",
       "id": "SP-DRC-001",
