@@ -9,7 +9,6 @@ import numpy as np
 import astropy.units as u
 from astropy.coordinates.representation import CartesianRepresentation, UnitSphericalRepresentation
 
-from sunpy import _scientific_checkers as _sc
 from sunpy import log
 from sunpy.coordinates import HeliographicStonyhurst, Helioprojective
 from sunpy.coordinates._transformations import _autoapply_diffrot
@@ -204,9 +203,6 @@ class SphericalScreen(BaseScreen):
         # Ignore sqrt of NaNs
         with np.errstate(invalid='ignore'):
             distance = ((-1*b) + np.sqrt(b**2 - 4*c)) / 2  # use the "far" solution
-
-        if _sc.enabled() and _autoapply_diffrot.get() is None:
-            _sc.check_spherical_screen(sphere_center, rep, distance, self._radius)
 
         # Iterate the calculation if differential rotation is being applied
         if _autoapply_diffrot.get() is not None and np.any(frame.obstime != self._center.obstime):

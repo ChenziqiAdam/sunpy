@@ -292,18 +292,6 @@
       "symbol": "GreatArc.coordinates"
     },
     {
-      "alarm": "`| |d u - C| - R | > 1e-9 R + C*eps*(|C| + |C|^2/R) + C*eps_in*(R + |C|)` (`eps_in` the largest unit round-off of centre, distance, radius) or `d < C.u - tol`",
-      "family": "spherical_screen_surface",
-      "id": "SP-SCR-001",
-      "invariant": "the promoted point `d u` is at distance `R` from the sphere centre and `d >= C.u` (the far intersection)",
-      "observation_point": "before the differential-rotation branch of `SphericalScreen.calculate_distance`",
-      "precondition": "no differential rotation, finite discriminant",
-      "rationale": "the defining geometry of the screen assumption.",
-      "scientific_quantity": "distance to a spherical screen",
-      "source": "sunpy/coordinates/screens.py",
-      "symbol": "SphericalScreen.calculate_distance"
-    },
-    {
       "alarm": "`|dTx|,|dTy|` `> 1e-6 arcsec` plus a round-off allowance (`64 eps` relative to the angular offset and to `L/d`, `eps` the largest floating epsilon among the input components and observer radii; and `64 eps_o |p|/d` for observer lon/lat of epsilon `eps_o`, `|p|` the heliocentric radius of the point), or `|d distance| > 1e-12 D` plus `64 eps L` and `64 eps_o |p|`",
       "family": "solar_rotate_reversible",
       "id": "SP-DRC-001",

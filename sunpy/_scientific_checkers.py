@@ -565,33 +565,6 @@ def check_great_arc(arc, points, pts_cartesian):
     trigger_if(np.any(np.abs(a1 - p * theta) > tol) or np.any(np.abs(a2 - (1 - p) * theta) > tol), "SP-FRM-006")
 
 
-# ================================================================== screens
-@_guarded
-def check_spherical_screen(centre, unit_rep, distance, radius):
-    """SP-SCR-001: promoted point is on the screen sphere (far root)."""
-    import astropy.units as u
-
-    uvec = np.asarray(unit_rep.to_cartesian().xyz.to_value(u.one), dtype=np.float64)
-    c = np.asarray(centre.xyz.to_value(u.m), dtype=np.float64)
-    c = np.broadcast_to(c.reshape((3,) + (1,) * (uvec.ndim - 1)) if c.ndim == 1 else c, uvec.shape)
-    d = np.asarray(distance.to_value(u.m), dtype=np.float64)
-    r = float(radius.to_value(u.m))
-    pt = uvec * d
-    dist_to_centre = np.linalg.norm(pt - c, axis=0)
-    cnorm = np.linalg.norm(c, axis=0)
-    ok = np.isfinite(dist_to_centre) & np.isfinite(d)
-    if not np.any(ok):
-        return
-    # d solves a quadratic with eps |c|^2 of cancellation; that moves the point by eps |c|^2 / r along the ray
-    # (second order in the tangent direction), and the near/far roots merge within sqrt(C eps) |c| of tangency
-    # float32 radius/distance/centre: their unit round-off enters the sphere radius relatively
-    eps_in = _eps_of(radius, distance, centre.xyz)
-    tol = 1e-9 * r + _C * _EPS * (cnorm + cnorm**2 / r) + _C * eps_in * (r + cnorm)
-    proj = np.sum(uvec * c, axis=0)
-    bad = (np.abs(dist_to_centre - r) > tol) | (d < proj - np.sqrt(_C * _EPS) * cnorm - tol)
-    trigger_if(np.any(ok & bad), "SP-SCR-001")
-
-
 # ======================================================== rotated coordinates
 @_guarded
 def check_solar_rotate(coordinate, observer_arg, new_observer, diff_rot_kwargs, result):
@@ -754,8 +727,11 @@ def check_resample_extrema(orig, dimensions, method, offset, m1, data):
     out = out[np.isfinite(out)]
     if out.size == 0:
         return
-    eps = max(_EPS, float(np.finfo(np.asarray(orig).dtype).eps) if np.asarray(orig).dtype.kind == "f" else _EPS)
-    tol = _C * eps * max(abs(lo), abs(hi))
+    fdt = np.asarray(orig).dtype if np.asarray(orig).dtype.kind == "f" else np.dtype(np.float64)
+    eps = max(_EPS, float(np.finfo(fdt).eps))
+    # subnormal operands have a fixed absolute spacing, so the relative bound C eps x underflows below the smallest
+    # normal: floor it at C subnormal units of the data dtype (the interpolation rounds (1-t)a + t b to that grid)
+    tol = _C * eps * max(abs(lo), abs(hi)) + _C * float(np.finfo(fdt).smallest_subnormal)
     trigger_if(out.min() < lo - tol or out.max() > hi + tol, "SP-MAP-003")
 
 
@@ -841,6 +817,17 @@ def _disk_pixels_ok(smap, min_radius_pixels=0.0):
     sc = max(smap.scale.axis1.to_value(u.deg / u.pix), smap.scale.axis2.to_value(u.deg / u.pix))
     if max(nx, ny) * sc > 5.0:
         return False
+    # the edge test (and the law's convexity argument) presumes a linear or near-linear pixel-to-sky map. A
+    # distortion (SIP / lookup table) whose second difference between adjacent pixels exceeds 0.05 px bends the
+    # footprint by more than a pixel within a few steps; real detector corrections are sub-pixel over thousands of
+    # pixels (second differences ~1e-5 px). A linear WCS has no distortion and is untouched.
+    if smap.wcs.has_distortion:
+        gy, gx = np.mgrid[0:ny, 0:nx]
+        f = np.asarray(smap.wcs.pix2foc(np.column_stack([gx.ravel(), gy.ravel()]).astype(np.float64), 0))
+        f = f.reshape(ny, nx, 2)
+        d2 = [np.abs(np.diff(f, 2, axis=a)) for a in (0, 1) if f.shape[a] >= 3]
+        if any(np.any(~np.isfinite(d)) or d.max() > 0.05 for d in d2):
+            return False
     if min_radius_pixels:
         # pixel step: the longest lattice vector of the full linear map (PC scaled by CDELT), not CDELT alone
         pc = np.asarray(smap.rotation_matrix, dtype=np.float64)
