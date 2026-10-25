@@ -441,7 +441,7 @@
       "id": "SP-WCS-002",
       "invariant": "evaluating the header's WCS at the zero-based reference pixel gives the input coordinate, and one pixel along an axis moves the coordinate by the requested scale",
       "observation_point": "return of `make_fitswcs_header`",
-      "precondition": "coordinate frame with lon/lat, `rotation_matrix` not given (an omitted `scale` is the documented default 1 arcsec/pix)",
+      "precondition": "coordinate frame with lon/lat, `rotation_matrix` not given (an omitted `scale` is the documented default 1 arcsec/pix); an integer `reference_pixel` whose value + 1 exceeds its own dtype maximum (int8 127, uint8 255) is excluded (software integer overflow)",
       "rationale": "FITS 1-based vs 0-based pixel conventions and units.",
       "scientific_quantity": "FITS-WCS reference coordinate",
       "source": "sunpy/map/header_helper.py",

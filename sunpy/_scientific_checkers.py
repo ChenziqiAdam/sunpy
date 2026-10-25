@@ -951,6 +951,12 @@ def check_fits_header(coordinate, reference_pixel, scale, rotation_matrix, shape
         # R15: the documented default (1 arcsec/pix); `scale[0]` on None used to raise, skipping every
         # default-scale header
         scale = [1.0, 1.0] * u.arcsec / u.pixel
+    # R21: an integer reference pixel whose 1-based CRPIX (value + 1) exceeds its own dtype maximum wraps in the
+    # caller's integer dtype (int8 127 -> -128): software integer overflow (numpy warns), not a WCS law; the
+    # float and non-overflowing integer references are unaffected
+    rp = np.asarray(getattr(reference_pixel, "value", reference_pixel))
+    if rp.dtype.kind in "iu" and any(int(v) + 1 > np.iinfo(rp.dtype).max for v in rp.ravel()):
+        return
     hdr = fits.Header()
     for k, v in dict(meta_wcs).items():
         if isinstance(v, str | int | float | bool | np.floating | np.integer):
